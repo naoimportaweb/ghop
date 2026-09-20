@@ -27,6 +27,11 @@ import socket
 import ssl
 import urllib.parse
 
+# Os rotulos da interface vem daqui, nao do codigo. A seta e so nesta
+# direcao: textos.py nao importa o nucleo (ciclo de import), e nao precisa --
+# ele so le JSON e o ambiente.
+from textos import T
+
 DIR_CA = os.environ.get("GHOP_CA_DIR", os.path.expanduser("~/.ghop/ca"))
 DIR_EMITIDOS = os.path.join(DIR_CA, "emitidos")
 ARQ_CA = os.path.join(DIR_CA, "ca.crt")
@@ -71,28 +76,28 @@ PAPEIS = {
     # em quem fala com quem, e a lista de concessoes cresce. Aparece em todo
     # no que TENHA isc-dhcp-server, instalado por nos ou nao -- o agente
     # reconhece o servico pela unidade e diz de onde ele veio em 'origem'.
-    "dhcp": {"rotulo": "DHCP", "comando": "dhcp",
-             "descricao": "Quem recebeu endereco nesta rede, e o que o DHCP entrega.",
+    "dhcp": {"rotulo": T("papel.dhcp.rotulo"), "comando": "dhcp",
+             "descricao": T("papel.dhcp.descricao"),
              "visao": True, "antes": ("saida", "servico")},
     # Como o Roteamento, o DNS rende tela cheia: sao dois assuntos (este
     # resolvedor e o servidor de cima) e uma lista que cresce.
-    "dns": {"rotulo": "DNS", "comando": "dns",
-            "descricao": "O resolvedor da LAN, o servidor de cima e o que foi negado.",
+    "dns": {"rotulo": T("papel.dns.rotulo"), "comando": "dns",
+            "descricao": T("papel.dns.descricao"),
             "visao": True, "antes": ("saida", "servico")},
-    "wifi": {"rotulo": "Wi-Fi", "comando": "wifi",
-             "descricao": "O radio, a rede que ele anuncia e quem esta associado."},
+    "wifi": {"rotulo": T("papel.wifi.rotulo"), "comando": "wifi",
+             "descricao": T("papel.wifi.descricao")},
     # Este nao rende aba dentro de 'Dados': rende uma VISAO inteira, no
     # mesmo nivel de 'Dados' e 'Analise de saida'. 'antes' diz onde ela
     # entra quando o no tiver o papel -- firewall e assunto de tela cheia,
     # nao de aba escondida.
-    "nftables": {"rotulo": "Roteamento", "comando": "nftables",
-                 "descricao": "O firewall em vigor: tabelas, cadeias, regras e contadores.",
+    "nftables": {"rotulo": T("papel.nftables.rotulo"), "comando": "nftables",
+                 "descricao": T("papel.nftables.descricao"),
                  "visao": True, "antes": ("saida", "servico")},
     # Tela cheia como o Roteamento, e pelo mesmo motivo: sao regras
     # ordenadas, que o operador escreve e reordena, mais o que elas
     # pegaram. Aba escondida nao serve para o que se edita.
-    "filtro": {"rotulo": "Filtro", "comando": "filtro",
-               "descricao": "O que a LAN pode alcancar por nome (SNI e Host), e o que foi negado.",
+    "filtro": {"rotulo": T("papel.filtro.rotulo"), "comando": "filtro",
+               "descricao": T("papel.filtro.descricao"),
                "visao": True, "antes": ("saida", "servico")},
 }
 
@@ -108,27 +113,20 @@ COMANDOS_ESCREVEM = ("monitorar", "papel", "lista", "firewall", "filtrar",
 # mexem em rede alheia, e quem clica precisa saber o que cai junto.
 ACOES_PAPEL = {
     "instalar": {
-        "rotulo": "Instalar",
-        "aviso": "Instala e liga o papel nesta maquina. Pode demorar minutos "
-                 "(apt) e mexe na configuracao dela.",
+        "rotulo": T("acao.instalar.rotulo"),
+        "aviso": T("acao.instalar.aviso"),
     },
     "iniciar": {
-        "rotulo": "Iniciar",
-        "aviso": "Liga o servico do papel, que ja esta instalado aqui.",
+        "rotulo": T("acao.iniciar.rotulo"),
+        "aviso": T("acao.iniciar.aviso"),
     },
     "parar": {
-        "rotulo": "Parar",
-        "aviso": "Para o servico e o tira do boot (ele nao volta sozinho "
-                 "quando a maquina reiniciar). A configuracao fica; o que ele "
-                 "fazia deixa de ser feito ate voltar. No papel Roteamento "
-                 "isto APAGA o firewall: a LAN perde a internet e a maquina "
-                 "fica exposta. Servico que ja estava na maquina antes do "
-                 "GHop e so PARADO, e continua habilitado no boot.",
+        "rotulo": T("acao.parar.rotulo"),
+        "aviso": T("acao.parar.aviso"),
     },
     "desinstalar": {
-        "rotulo": "Desinstalar",
-        "aviso": "Para o servico e desfaz o que o instalador fez, restaurando "
-                 "a configuracao anterior. NAO apaga dado coletado.",
+        "rotulo": T("acao.desinstalar.rotulo"),
+        "aviso": T("acao.desinstalar.aviso"),
     },
 }
 
@@ -140,7 +138,7 @@ PAPEIS_GERENCIAVEIS = ("coletor", "dns", "wifi", "dhcp", "nftables", "filtro")
 # janela, porque as duas cascas mostram a mesma coluna e nao podem divergir:
 # a janela escrevia "ja estava aqui" enquanto a linha de comando imprimia
 # 'sistema' cru.
-ORIGENS_PAPEL = {"ghop": "GHop", "sistema": "ja estava aqui"}
+ORIGENS_PAPEL = {"ghop": T("origem.ghop"), "sistema": T("origem.sistema")}
 
 # O que o cruzamento das fontes da topologia QUER DIZER, em uma linha. Fica
 # aqui pelo mesmo motivo de ORIGENS_PAPEL: as duas cascas mostram a mesma
@@ -148,9 +146,9 @@ ORIGENS_PAPEL = {"ghop": "GHop", "sistema": "ja estava aqui"}
 # nossa" e a unica linha da topologia que aponta um aparelho que ninguem
 # cadastrou, e ele so aparece porque as tres fontes discordam.
 LEITURAS_DE_FONTE = (
-    (("dhcp",), "so concessao: nao falou (desligado?)"),
-    (("wifi",), "no radio, sem endereco ainda"),
-    (("dhcp", "wifi"), "no radio com concessao, mas calado"),
+    (("dhcp",), T("leitura.dhcp")),
+    (("wifi",), T("leitura.wifi")),
+    (("dhcp", "wifi"), T("leitura.dhcp_wifi")),
 )
 
 
@@ -161,7 +159,7 @@ def leitura_das_fontes(fontes):
         if tem == set(combinacao):
             return texto
     if "vizinho" in tem and "dhcp" not in tem:
-        return "fala sem concessao nossa (fixo?)"
+        return T("leitura.fixo")
     return ""
 
 
@@ -171,37 +169,37 @@ VISOES = {
     # o que ela E -- processador, memoria, disco. Tela cheia por causa do
     # disco: nenhuma outra aba responde "vai encher quando?".
     "maquina": {
-        "rotulo": "Maquina",
+        "rotulo": T("visao.maquina.rotulo"),
         "comando": "sistema",
-        "descricao": "Processador, memoria, disco e versoes desta maquina.",
+        "descricao": T("visao.maquina.descricao"),
     },
     # 'servicos' e a primeira: e a unica tela que MUDA a maquina, e o lugar
     # de olhar antes de qualquer leitura -- papel parado explica tela vazia.
     # Nao confundir com 'servico' (Analise de servico), que e o que a maquina
     # OFERECE para fora e ainda nao existe.
     "servicos": {
-        "rotulo": "Servicos",
+        "rotulo": T("visao.servicos.rotulo"),
         "comando": "papeis",
-        "descricao": "Papeis do GHop nesta maquina: instalar, iniciar, parar, desinstalar.",
+        "descricao": T("visao.servicos.descricao"),
     },
     # 'dados' vem antes das analises: e a maquina em si -- o que ela e, nao
     # o que ela faz. Por dentro tem abas por assunto (rede, e o que vier).
     "dados": {
-        "rotulo": "Dados",
+        "rotulo": T("visao.dados.rotulo"),
         # O comando que decide se a visao existe; as abas internas podem
         # usar outros (rotas), cada uma de leitura.
         "comando": "interfaces",
-        "descricao": "A maquina como esta agora: interfaces de rede, enderecos, rotas.",
+        "descricao": T("visao.dados.descricao"),
     },
     "saida": {
-        "rotulo": "Analise de saida",
+        "rotulo": T("visao.saida.rotulo"),
         "comando": "resumo",
-        "descricao": "O que esta maquina pediu para fora: dominios e IPs, so contados.",
+        "descricao": T("visao.saida.descricao"),
     },
     "servico": {
-        "rotulo": "Analise de servico",
+        "rotulo": T("visao.servico.rotulo"),
         "comando": "servicos",
-        "descricao": "O que esta maquina serve, e para quem.",
+        "descricao": T("visao.servico.descricao"),
     },
 }
 
@@ -220,9 +218,9 @@ VISOES = {
 # errar o tipo, o agente responde "comando desconhecido" e nada acontece de
 # ruim. Nao apoie decisao de seguranca nisto.
 TIPOS = {
-    "lojmIt": {"rotulo": "lojmIt",
+    "lojmIt": {"rotulo": T("tipo.lojmIt.rotulo"),
                 "visoes": ("maquina", "servicos", "dados", "saida")},
-    "webserver": {"rotulo": "Servidor web",
+    "webserver": {"rotulo": T("tipo.webserver.rotulo"),
                   "visoes": ("maquina", "servicos", "dados", "servico")},
 }
 

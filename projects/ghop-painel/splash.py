@@ -10,8 +10,14 @@ milissegundos, e acontecem depois. Barra que finge medir progresso e mentira
 de tela -- e neste projeto numero certo com rotulo errado ja foi decidido ser
 pior do que numero nenhum. Por isso o rotulo diz 'abrindo', nao '37%'.
 
-As frases sao tlhIngan Hol de verdade (Okrand), com a traducao embaixo: sao
-enfeite assumido, entao ao menos nao inventam idioma.
+As frases sao tlhIngan Hol de verdade (Okrand) e ficam SO em klingon na tela.
+A splash e zueira assumida, e zueira explicada perde a graca -- quem quiser
+saber o que esta escrito procura, que e metade da piada. A traducao continua
+no codigo, ao lado de cada frase, porque ela nao e para o usuario: e para quem
+mexer aqui nao trocar uma frase por outra sem saber o que passou a dizer.
+
+O resto do painel NAO e assim: rotulo de tela sai do recurso (textos.py) e o
+padrao e ingles. A splash e a excecao, e e excecao por ser piada.
 
 Variavel de ambiente:
   GHOP_SEM_SPLASH  qualquer valor nao vazio pula a splash (script e teste)
@@ -24,7 +30,7 @@ from PySide6.QtCore import QElapsedTimer, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
-from estilo import COR_APAGADO, COR_FUNDO, COR_REALCE, COR_TEXTO
+from estilo import COR_FUNDO, COR_REALCE, COR_TEXTO
 
 ARQ_IMAGEM = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "recursos", "splash.png")
@@ -37,8 +43,10 @@ TROCA_MS = 900
 # e o vermelho do proprio simbolo, nao o verde de terminal, porque a imagem
 # manda na paleta.
 
-# tlhIngan Hol atestado (The Klingon Dictionary, Marc Okrand) com a traducao.
-# Nao ha frase inventada aqui de proposito: enfeite pode ser bobo, nao falso.
+# tlhIngan Hol atestado (The Klingon Dictionary, Marc Okrand). O segundo item
+# de cada par e a glosa, que NAO vai para a tela: fica aqui para quem mexer no
+# arquivo saber o que a frase diz. Nao ha frase inventada de proposito --
+# enfeite pode ser bobo, nao falso.
 FRASES = [
     ("nuqneH", "o que voce quer?"),
     ("tlhIngan maH!", "somos klingon!"),
@@ -106,16 +114,6 @@ class TelaSplash(QWidget):
         self.klingon.setAlignment(Qt.AlignHCenter)
         leiaute.addWidget(self.klingon)
 
-        self.traducao = QLabel("")
-        fonte_traducao = QFont("monospace")
-        fonte_traducao.setStyleHint(QFont.Monospace)
-        fonte_traducao.setPointSize(9)
-        fonte_traducao.setItalic(True)
-        self.traducao.setFont(fonte_traducao)
-        self.traducao.setStyleSheet(f"color:{COR_APAGADO}; background:transparent;")
-        self.traducao.setAlignment(Qt.AlignHCenter)
-        leiaute.addWidget(self.traducao)
-
         self.barra = QProgressBar()
         self.barra.setRange(0, 100)
         self.barra.setFixedHeight(14)
@@ -157,10 +155,9 @@ class TelaSplash(QWidget):
         pintor.drawRect(0, 0, self.width() - 1, self.height() - 1)
 
     def _troca(self):
-        frase, traducao = self.fila[self.proxima % len(self.fila)]
+        frase, _glosa = self.fila[self.proxima % len(self.fila)]
         self.proxima += 1
         self.klingon.setText(frase)
-        self.traducao.setText(traducao)
 
     def iniciar(self):
         self.show()
@@ -176,7 +173,6 @@ class TelaSplash(QWidget):
             self.trocador.stop()
             self.barra.setValue(100)
             self.klingon.setText(DESPEDIDA[0])
-            self.traducao.setText(DESPEDIDA[1])
             # Um respiro para o 'Qapla'' ser lido antes de a janela abrir.
             QTimer.singleShot(400, self._fecha)
 

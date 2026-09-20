@@ -32,9 +32,10 @@ import sys
 import time
 
 from PySide6.QtCore import (
-    QObject, QRect, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot)
+    QObject, QRect, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot)
 from PySide6.QtGui import (
-    QAction, QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap)
+    QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainter, QPen,
+    QPixmap)
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
     QFormLayout, QFrame,
@@ -49,6 +50,7 @@ from PySide6.QtWidgets import (
 import estilo
 import nucleo
 from nucleo import ErroGHop, Painel
+from textos import T
 
 PAPEL_NO = Qt.UserRole
 # A linha inteira viaja na celula: com ordenacao ligada o indice da tabela
@@ -171,10 +173,8 @@ class VisaoIndisponivel(QWidget):
         titulo.setAlignment(Qt.AlignCenter)
         leiaute.addWidget(titulo)
         for texto in (visao["descricao"],
-                      f"O agente ainda nao implementa o comando "
-                      f"'{visao['comando']}'.",
-                      "Acrescentar comando e decisao de arquitetura: "
-                      "ver docs/arquitetura.md."):
+                      T("msg.comando_nao_implementado").format(visao["comando"]),
+                      T("msg.acrescentar_comando")):
             rotulo = QLabel(texto)
             rotulo.setAlignment(Qt.AlignCenter)
             rotulo.setWordWrap(True)
@@ -209,20 +209,20 @@ class VisaoSaida(QWidget):
         leiaute = QVBoxLayout(self)
 
         controles = QHBoxLayout()
-        controles.addWidget(QLabel("Dia:"))
+        controles.addWidget(QLabel(T("texto.dia")))
         self.dia = QLineEdit()
-        self.dia.setPlaceholderText("hoje (DD_MM_AAAA)")
+        self.dia.setPlaceholderText(T("dica.hoje_dd_mm_aaaa"))
         # Minimo junto com o maximo: so com teto, a linha de controles
         # espremia o campo ate 'h...' quando os botoes de janela entraram.
         self.dia.setMinimumWidth(120)
         self.dia.setMaximumWidth(140)
         controles.addWidget(self.dia)
-        controles.addWidget(QLabel("Limite:"))
+        controles.addWidget(QLabel(T("texto.limite")))
         self.limite = QSpinBox()
         self.limite.setRange(1, 1000)
         self.limite.setValue(100)
         controles.addWidget(self.limite)
-        self.botao = QPushButton("Atualizar")
+        self.botao = QPushButton(T("botao.atualizar"))
         self.botao.clicked.connect(self.recarrega)
         controles.addWidget(self.botao)
 
@@ -249,17 +249,16 @@ class VisaoSaida(QWidget):
         # visual (o addStretch abaixo nao serve: e o que empurra o estado
         # para a direita), longe dos de janela, porque errar de botao aqui
         # nao tem desfazer.
-        self.limpar = QPushButton("Limpar coletado...")
+        self.limpar = QPushButton(T("botao.limpar_coletado"))
         self.limpar.setToolTip(
-            "Apaga do agente os contadores da aba aberta (Dominios ou IPs) "
-            "no dia consultado. Nao ha desfazer.")
+            T("ajuda.apaga_do_agente_os"))
         self.limpar.clicked.connect(self.pede_limpeza)
         controles.addWidget(self.limpar)
         # O que a whitelist cobre some daqui, mas continua coletado no agente.
         # A caixa e para conferir a propria lista, nao para operar o dia a dia.
-        self.mostrar_conhecidos = QCheckBox("Mostrar conhecidos")
+        self.mostrar_conhecidos = QCheckBox(T("opcao.mostrar_conhecidos"))
         self.mostrar_conhecidos.setToolTip(
-            "Exibe tambem o que a whitelist cobre, em cinza.")
+            T("ajuda.exibe_tambem_o_que"))
         self.mostrar_conhecidos.toggled.connect(self.recarrega)
         controles.addWidget(self.mostrar_conhecidos)
         controles.addStretch()
@@ -268,14 +267,14 @@ class VisaoSaida(QWidget):
         leiaute.addLayout(controles)
 
         self.abas = QTabWidget()
-        self.dominios = tabela(["Dominio", "Total", "Primeiro", "Ultimo"], 1)
-        self.ips = tabela(["IP", "Porta", "Total", "Primeiro", "Ultimo"], 2)
+        self.dominios = tabela([T("coluna.dominio"), T("coluna.total"), T("coluna.primeiro"), T("coluna.ultimo")], 1)
+        self.ips = tabela([T("coluna.ip"), T("coluna.porta"), T("coluna.total"), T("coluna.primeiro"), T("coluna.ultimo")], 2)
         self.dominios.itemDoubleClicked.connect(
             lambda item: self.abre_detalhe("dominios", item))
         self.ips.itemDoubleClicked.connect(
             lambda item: self.abre_detalhe("ips", item))
-        self.abas.addTab(self.dominios, "Dominios")
-        self.abas.addTab(self.ips, "IPs")
+        self.abas.addTab(self.dominios, T("aba.dominios"))
+        self.abas.addTab(self.ips, T("aba.ips"))
         leiaute.addWidget(self.abas)
 
     def pede_limpeza(self):
@@ -291,18 +290,12 @@ class VisaoSaida(QWidget):
         visiveis = (self.dominios if especie == "dominios" else self.ips).rowCount()
         resposta = QMessageBox.question(
             self, "GHop",
-            f"Apagar no agente TODOS os contadores de {rotulo} do dia {dia}, "
-            f"em '{self.no}'?\n\n"
-            f"A tela mostra {visiveis} linha(s), mas o que sera apagado e a "
-            "tabela inteira daquele dia -- inclusive o que a whitelist esconde "
-            "e o que passou do limite.\n\n"
-            "Isto NAO tem desfazer. O registro dos IPs monitorados e a "
-            "contagem de clientes do DNS nao sao tocados.",
+            T("msg.apagar_no_agente_todos_os").format(rotulo, dia, self.no, visiveis),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if resposta != QMessageBox.Yes:
             return
         self.limpar.setEnabled(False)
-        self.estado.setText("limpando...")
+        self.estado.setText(T("texto.limpando"))
         tarefa = Tarefa(self.painel.limpar, self.no, especie,
                         self.dia.text().strip() or None)
         tarefa.sinais.pronto.connect(self.limpou)
@@ -312,14 +305,13 @@ class VisaoSaida(QWidget):
     @Slot(object)
     def limpou(self, dados):
         self.limpar.setEnabled(True)
-        self.avisar(f"{self.no}: {dados.get('apagadas')} linha(s) de "
-                    f"{dados.get('especie')} apagada(s) do dia {dados.get('dia')}.")
+        self.avisar(T("msg.linha_s_de_apagada_s").format(self.no, dados.get('apagadas'), dados.get('especie'), dados.get('dia')))
         self.recarrega()
 
     @Slot(str)
     def limpeza_falhou(self, mensagem):
         self.limpar.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.avisar(f"{self.no}: {mensagem}")
 
     def usa_janela(self, minutos):
@@ -337,7 +329,7 @@ class VisaoSaida(QWidget):
 
     def recarrega(self):
         self.botao.setEnabled(False)
-        self.estado.setText("consultando...")
+        self.estado.setText(T("texto.consultando"))
         tarefa = Tarefa(self.painel.resumo, self.no,
                         dia=self.dia.text().strip() or None,
                         limite=self.limite.value(),
@@ -398,8 +390,8 @@ class VisaoSaida(QWidget):
             self._pinta(self.ips, i, linha)
         self.ips.setSortingEnabled(True)
 
-        self.abas.setTabText(0, f"Dominios ({self.dominios.rowCount()})")
-        self.abas.setTabText(1, f"IPs ({self.ips.rowCount()})")
+        self.abas.setTabText(0, T("aba.contagem").format(T("aba.dominios"), self.dominios.rowCount()))
+        self.abas.setTabText(1, T("aba.contagem").format(T("aba.ips"), self.ips.rowCount()))
 
         # Quantos a whitelist tirou da vista. Dizer isso importa: o limite e
         # aplicado pelo AGENTE antes de filtrar, entao uma lista grande pode
@@ -411,9 +403,8 @@ class VisaoSaida(QWidget):
         # tela some com linha por motivo invisivel, que e como se desconfia de
         # ferramenta de vigilancia.
         if dados.get("minutos"):
-            estado += (f"  -  ultimos {dados['minutos']} min"
-                       f" (desde {(dados.get('desde') or '')[11:16]}):"
-                       " quem apareceu na janela, com o total do dia")
+            estado += T("texto.ultimos_min").format(
+                dados["minutos"], (dados.get("desde") or "")[11:16])
         if total_oculto:
             estado += (f"  -  {total_oculto} ocultos pela whitelist"
                        f" ({ocultos.get('dominios', 0)} dom / {ocultos.get('ips', 0)} ip)")
@@ -435,7 +426,7 @@ class VisaoSaida(QWidget):
     @Slot(str)
     def deu_errado(self, mensagem):
         self.botao.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.avisar(f"{self.no}: {mensagem}")
 
 
@@ -465,13 +456,11 @@ def botao_segundo_plano():
     Fica vermelho quando ligado porque, ao contrario do resto do painel,
     e um estado que continua custando depois que se olha para outro lado.
     """
-    botao = QPushButton("Segundo plano")
+    botao = QPushButton(T("botao.segundo_plano"))
     botao.setCheckable(True)
     botao.setChecked(False)
     botao.setToolTip(
-        "Desligado: as perguntas param quando esta aba sai da frente.\n"
-        "Ligado: o painel continua perguntando ao agente mesmo com a janela\n"
-        "coberta ou em outra aba. Consome o no observado o tempo todo.")
+        T("ajuda.desligado_as_perguntas_param"))
     botao.setStyleSheet(
         "QPushButton:checked { background: #a03030; color: white;"
         " font-weight: bold; }")
@@ -533,7 +522,7 @@ class GraficoTrafego(QWidget):
                                for rotulo, _, i in self.series)
             self.setToolTip(f"{self.nome}: {resumo}")
         else:
-            self.setToolTip(f"{self.nome}: sem amostras ainda")
+            self.setToolTip(T("ajuda.sem_amostras_ainda").format(self.nome))
         self.update()
 
     @staticmethod
@@ -567,14 +556,14 @@ class GraficoTrafego(QWidget):
         pintor.drawRoundedRect(x, y + 2, largura, altura, 4, 4)
         pintor.setPen(fraco)
         pintor.drawText(x + 6, y + 2, largura - 12, altura, Qt.AlignLeft | Qt.AlignVCenter,
-                        "nenhuma casou:")
+                        T("texto.nenhuma_casou"))
         pintor.setPen(cor.darker(150))
         fonte = pintor.font()
         fonte.setBold(True)
         pintor.setFont(fonte)
         pintor.drawText(x + 6, y + 2, largura - 12, altura,
                         Qt.AlignRight | Qt.AlignVCenter,
-                        (politica or "sem politica").upper())
+                        (politica or T("texto.sem_politica")).upper())
         fonte.setBold(False)
         pintor.setFont(fonte)
 
@@ -623,7 +612,7 @@ class GraficoTrafego(QWidget):
                 pintor.drawText(direita_texto, 0, largura_texto, faixa_titulo,
                                 Qt.AlignRight | Qt.AlignVCenter, texto)
         else:
-            texto = "sem amostras ainda"
+            texto = T("texto.sem_amostras")
             largura_texto = metrica.horizontalAdvance(texto) + self.FOLGA
             direita_texto -= largura_texto
             pintor.setPen(texto_cor)
@@ -719,12 +708,12 @@ class AbaPapel(QWidget):
         self.leiaute = QVBoxLayout(self)
         self.leiaute.setContentsMargins(0, 6, 0, 0)
         linha = QHBoxLayout()
-        self.botao = QPushButton("Atualizar")
+        self.botao = QPushButton(T("botao.atualizar"))
         self.botao.clicked.connect(self.recarrega)
         linha.addWidget(self.botao)
         self.relogio = None
         if self.AO_VIVO:
-            self.ao_vivo = QCheckBox(f"Ao vivo (a cada {self.INTERVALO // 1000} s)")
+            self.ao_vivo = QCheckBox(T("opcao.ao_vivo", s=self.INTERVALO // 1000))
             self.ao_vivo.setChecked(True)
             linha.addWidget(self.ao_vivo)
             self.fundo = botao_segundo_plano()
@@ -771,7 +760,7 @@ class AbaPapel(QWidget):
             self.relogio.stop()
             return
         self.botao.setEnabled(False)
-        self.estado.setText("consultando...")
+        self.estado.setText(T("texto.consultando"))
         tarefa = Tarefa(self.funcao, self.no)
         tarefa.sinais.pronto.connect(self._chegou)
         tarefa.sinais.falhou.connect(self._falhou)
@@ -780,13 +769,13 @@ class AbaPapel(QWidget):
     @Slot(object)
     def _chegou(self, dados):
         self.botao.setEnabled(True)
-        self.estado.setText(f"em {dados.get('quando')}")
+        self.estado.setText(T("texto.em").format(dados.get('quando')))
         self.preenche(dados)
 
     @Slot(str)
     def _falhou(self, mensagem):
         self.botao.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         # No que nao responde nao vira fonte de pedido repetido: para o
         # relogio e deixa o operador reabrir quando quiser.
         if self.relogio is not None:
@@ -806,17 +795,14 @@ class VisaoDHCP(AbaPapel):
 
     def monta(self):
         self.concessoes = tabela(
-            ["IP", "MAC", "Nome", "Estado", "Inicio", "Fim"], 0)
+            [T("coluna.ip"), T("coluna.mac"), T("coluna.nome"), T("coluna.estado"), T("coluna.inicio"), T("coluna.fim")], 0)
         self.concessoes.sortByColumn(0, Qt.AscendingOrder)
         self.leiaute.addWidget(self.concessoes)
 
     def preenche(self, dados):
         configuracao = dados.get("configuracao") or {}
         self.resumo.setText(
-            f"faixa {configuracao.get('faixa', '?')}  -  "
-            f"roteador {configuracao.get('roteador', '?')}  -  "
-            f"resolvedor {configuracao.get('resolvedor', '?')}  -  "
-            f"{dados.get('ativas', 0)} de {dados.get('total', 0)} concessoes ativas")
+            T("texto.faixa_roteador_resolvedor_de").format(configuracao.get('faixa', '?'), configuracao.get('roteador', '?'), configuracao.get('resolvedor', '?'), dados.get('ativas', 0), dados.get('total', 0)))
         linhas = dados.get("concessoes", [])
         self.concessoes.setSortingEnabled(False)
         self.concessoes.setRowCount(len(linhas))
@@ -874,22 +860,20 @@ class DialogoColarLista(QDialog):
 
     def __init__(self, especie, pai=None, nome=""):
         super().__init__(pai)
-        self.setWindowTitle("GHop - colar lista")
+        self.setWindowTitle(T("janela.colar_lista"))
         self.resize(700, 520)
         leiaute = QVBoxLayout(self)
         rotulo = "negacao (blacklist)" if especie == "negados" else "excecao (whitelist)"
         leiaute.addWidget(cabecalho(
-            f"Colar lista de {rotulo}",
-            "Um nome por linha. Aceita o formato 'hosts' (0.0.0.0 dominio), "
-            "curingas (ads.*), '=nome' para exato e comentario com '#'. "
-            "Linha que nao vira nome valido e contada e descartada."))
+            T("texto.colar_lista_de").format(rotulo),
+            T("texto.um_nome_por_linha")))
         formulario = QFormLayout()
         self.nome = QLineEdit(nome)
-        self.nome.setPlaceholderText("minusculas, digitos e hifen (ex.: hagezi-pro)")
-        formulario.addRow("Nome da lista:", self.nome)
+        self.nome.setPlaceholderText(T("dica.minusculas_digitos_e_hifen"))
+        formulario.addRow(T("campo.nome_da_lista"), self.nome)
         leiaute.addLayout(formulario)
         self.texto = QPlainTextEdit()
-        self.texto.setPlaceholderText("cole aqui o conteudo do arquivo")
+        self.texto.setPlaceholderText(T("dica.cole_aqui_o_conteudo"))
         leiaute.addWidget(self.texto, 1)
         self.contagem = QLabel("")
         self.contagem.setStyleSheet("color: palette(mid);")
@@ -904,7 +888,7 @@ class DialogoColarLista(QDialog):
         texto = self.texto.toPlainText()
         linhas = sum(1 for l in texto.splitlines() if l.strip())
         self.contagem.setText(
-            f"{linhas} linha(s), {len(texto) // 1024} kB. Envio em pedacos de 32 kB.")
+            T("texto.linha_s_kb_envio").format(linhas, len(texto) // 1024))
 
     def valores(self):
         return self.nome.text().strip(), self.texto.toPlainText()
@@ -922,16 +906,16 @@ class PainelListasDNS(QWidget):
         leiaute = QVBoxLayout(self)
         leiaute.setContentsMargins(0, 6, 0, 0)
         botoes = QHBoxLayout()
-        self.nova = QPushButton("Colar nova lista...")
+        self.nova = QPushButton(T("botao.colar_nova_lista"))
         self.nova.clicked.connect(lambda: self.cola())
         botoes.addWidget(self.nova)
-        self.substituir = QPushButton("Substituir a selecionada...")
+        self.substituir = QPushButton(T("botao.substituir_a_selecionada"))
         self.substituir.clicked.connect(self.substitui)
         botoes.addWidget(self.substituir)
-        self.ligar = QPushButton("Ativar/Desativar")
+        self.ligar = QPushButton(T("botao.ativar_desativar"))
         self.ligar.clicked.connect(self.alterna)
         botoes.addWidget(self.ligar)
-        self.apagar = QPushButton("Apagar lista")
+        self.apagar = QPushButton(T("botao.apagar_lista"))
         self.apagar.clicked.connect(self.remove)
         botoes.addWidget(self.apagar)
         botoes.addStretch()
@@ -940,14 +924,14 @@ class PainelListasDNS(QWidget):
         botoes.addWidget(self.progresso)
         leiaute.addLayout(botoes)
 
-        self.listas = tabela(["Lista", "Ativa", "Regras", "Origem", "Quando"], 2)
+        self.listas = tabela([T("coluna.lista"), T("coluna.ativa"), T("coluna.regras"), T("coluna.origem"), T("coluna.quando")], 2)
         self.listas.sortByColumn(0, Qt.AscendingOrder)
         self.listas.itemSelectionChanged.connect(self.abre_selecionada)
         leiaute.addWidget(self.listas, 1)
 
-        self.titulo_regras = QLabel("Regras: selecione uma lista acima.")
+        self.titulo_regras = QLabel(T("texto.regras_selecione_uma_lista"))
         leiaute.addWidget(self.titulo_regras)
-        self.regras = tabela(["Regra", "Nota"], 0)
+        self.regras = tabela([T("coluna.regra"), T("coluna.nota")], 0)
         leiaute.addWidget(self.regras, 2)
 
         # Regra a regra, na lista que estiver selecionada acima. Sem caixa de
@@ -956,16 +940,16 @@ class PainelListasDNS(QWidget):
         # aqui viraria ruido, e ruido ensina a clicar em 'sim' sem ler --
         # que e o que estraga a confirmacao onde ela importa (apagar lista).
         regra = QHBoxLayout()
-        regra.addWidget(QLabel("Regra:"))
+        regra.addWidget(QLabel(T("texto.regra")))
         self.nova_regra = QLineEdit()
         self.nova_regra.setPlaceholderText(
-            "exemplo.com  |  =exato.com  |  ads.*  |  *rastreio*")
+            T("dica.exemplo_com_exato_com"))
         self.nova_regra.returnPressed.connect(lambda: self.muda_regra("adicionar"))
         regra.addWidget(self.nova_regra)
-        self.botao_add_regra = QPushButton("Adicionar")
+        self.botao_add_regra = QPushButton(T("botao.adicionar"))
         self.botao_add_regra.clicked.connect(lambda: self.muda_regra("adicionar"))
         regra.addWidget(self.botao_add_regra)
-        self.botao_tira_regra = QPushButton("Tirar a selecionada")
+        self.botao_tira_regra = QPushButton(T("botao.tirar_a_selecionada"))
         self.botao_tira_regra.clicked.connect(lambda: self.muda_regra("remover"))
         regra.addWidget(self.botao_tira_regra)
         leiaute.addLayout(regra)
@@ -1003,7 +987,7 @@ class PainelListasDNS(QWidget):
         entrada = self._selecionada()
         if not entrada:
             return
-        self.titulo_regras.setText(f"Regras de '{entrada['nome']}': lendo...")
+        self.titulo_regras.setText(T("texto.regras_de_lendo").format(entrada['nome']))
         tarefa = Tarefa(self.painel.listas_dns, self.no, self.especie, entrada["nome"])
         tarefa.sinais.pronto.connect(self._mostra_regras)
         tarefa.sinais.falhou.connect(lambda m: self.avisar(f"{self.no}: {m}"))
@@ -1023,7 +1007,7 @@ class PainelListasDNS(QWidget):
         self.regras.setSortingEnabled(True)
         self.titulo_regras.setText(
             f"Regras de '{escolhida.get('lista')}': {len(regras)}"
-            + ("  (mostrando so as primeiras; a lista e maior)"
+            + (T("texto.mostrando_primeiras")
                if escolhida.get("cortada") else ""))
 
     # ------------------------------------------------------------- escrita
@@ -1031,7 +1015,7 @@ class PainelListasDNS(QWidget):
     def muda_regra(self, acao):
         entrada = self._selecionada()
         if not entrada:
-            self.avisar("selecione primeiro a lista que vai receber a regra.")
+            self.avisar(T("msg.selecione_primeiro_a_lista_que"))
             return
         if acao == "adicionar":
             nome = self.nova_regra.text().strip()
@@ -1040,9 +1024,9 @@ class PainelListasDNS(QWidget):
             item = self.regras.item(linha, 0) if linha >= 0 else None
             nome = item.text() if item else self.nova_regra.text().strip()
         if not nome:
-            self.avisar("digite a regra, ou selecione uma na tabela.")
+            self.avisar(T("msg.digite_a_regra_ou_selecione"))
             return
-        self.progresso.setText(f"{acao} '{nome}' em {entrada['nome']}...")
+        self.progresso.setText(T("texto.em_2").format(acao, nome, entrada['nome']))
         tarefa = Tarefa(self.painel.regra_lista, self.no, self.especie,
                         entrada["nome"], nome, acao)
         tarefa.sinais.pronto.connect(self._regra_mudou)
@@ -1053,8 +1037,7 @@ class PainelListasDNS(QWidget):
     def _regra_mudou(self, dados):
         self.nova_regra.clear()
         self.progresso.setText(
-            f"{dados.get('nome')}: {dados.get('acao', '').replace('_regra', '')}"
-            f" ({dados.get('regras')} na lista)")
+            T("texto.na_lista").format(dados.get('nome'), dados.get('acao', '').replace('_regra', ''), dados.get('regras')))
         # Recarrega as duas tabelas: a contagem da lista mudou junto.
         self.abre_selecionada()
         self.recarrega_pai()
@@ -1065,9 +1048,9 @@ class PainelListasDNS(QWidget):
             return
         nome, texto = dialogo.valores()
         if not nome or not texto.strip():
-            self.avisar("informe o nome da lista e cole algum conteudo.")
+            self.avisar(T("msg.informe_o_nome_da_lista"))
             return
-        self.progresso.setText("enviando...")
+        self.progresso.setText(T("texto.enviando"))
         for botao in (self.nova, self.substituir, self.ligar, self.apagar):
             botao.setEnabled(False)
         tarefa = Tarefa(self.painel.envia_lista, self.no, self.especie, nome, texto)
@@ -1078,7 +1061,7 @@ class PainelListasDNS(QWidget):
     def substitui(self):
         entrada = self._selecionada()
         if not entrada:
-            self.avisar("selecione a lista a substituir.")
+            self.avisar(T("msg.selecione_a_lista_a_substituir"))
             return
         self.cola(entrada["nome"])
 
@@ -1088,17 +1071,15 @@ class PainelListasDNS(QWidget):
             return
         acao = "desativar" if entrada.get("ativa") else "ativar"
         self._muda(entrada["nome"], acao,
-                   f"{acao.capitalize()} a lista '{entrada['nome']}' em '{self.no}'?"
-                   "\n\nO resolvedor sera recarregado e a mudanca vale para a LAN.")
+                   T("msg.ativar_lista").format(
+                       acao.capitalize(), entrada["nome"], self.no))
 
     def remove(self):
         entrada = self._selecionada()
         if not entrada:
             return
         self._muda(entrada["nome"], "remover",
-                   f"APAGAR a lista '{entrada['nome']}' em '{self.no}'?"
-                   "\n\nO arquivo e apagado no no. Para so parar de valer, "
-                   "use Ativar/Desativar.")
+                   T("msg.apagar_lista").format(entrada["nome"], self.no))
 
     def _muda(self, nome, acao, pergunta):
         if QMessageBox.question(self, "GHop", pergunta,
@@ -1127,7 +1108,7 @@ class PainelListasDNS(QWidget):
     def _falhou(self, mensagem):
         for botao in (self.nova, self.substituir, self.ligar, self.apagar):
             botao.setEnabled(True)
-        self.progresso.setText("recusado")
+        self.progresso.setText(T("texto.recusado"))
         self.avisar(f"{self.no}: {mensagem}")
 
 
@@ -1156,25 +1137,24 @@ class VisaoDNS(AbaPapel):
         aba_dados = QWidget()
         dentro = QVBoxLayout(aba_dados)
         dentro.setContentsMargins(0, 6, 0, 0)
-        self.ficha_local = tabela_chave_valor("Este resolvedor")
+        self.ficha_local = tabela_chave_valor(T("texto.este_resolvedor"))
         dentro.addWidget(self.ficha_local, 1)
-        self.ficha_acima = tabela_chave_valor("Servidor de cima (para quem ele pergunta)")
+        self.ficha_acima = tabela_chave_valor(T("texto.servidor_de_cima"))
         dentro.addWidget(self.ficha_acima, 1)
-        self.abas.addTab(aba_dados, "Dados")
+        self.abas.addTab(aba_dados, T("aba.dados"))
 
         aba_bloqueios = QWidget()
         dentro = QVBoxLayout(aba_bloqueios)
         dentro.setContentsMargins(0, 6, 0, 0)
         linha = QHBoxLayout()
-        linha.addWidget(QLabel("Filtrar:"))
+        linha.addWidget(QLabel(T("texto.filtrar")))
         self.filtro = QLineEdit()
-        self.filtro.setPlaceholderText("cliente ou nome")
+        self.filtro.setPlaceholderText(T("dica.cliente_ou_nome"))
         self.filtro.textChanged.connect(self._aplica_filtro)
         linha.addWidget(self.filtro)
         dentro.addLayout(linha)
         dentro.addWidget(QLabel(
-            "Consultas NEGADAS, somadas por regra, nome e cliente. "
-            "As demais nao sao registradas em lugar nenhum:"))
+            T("texto.consultas_negadas_somadas_por")))
         # Colunas na ordem inversa da natural: a REGRA vem primeiro e leva a
         # sobra da largura, porque e o campo que cresce (padrao com curinga)
         # e o que explica POR QUE aquele nome foi negado. Data e cliente sao
@@ -1183,10 +1163,10 @@ class VisaoDNS(AbaPapel):
         # Uma linha por (regra, nome, cliente), com o total: negacao repete
         # muito, e a lista crua era rolagem sem informacao.
         self.bloqueios = tabela(
-            ["Regra", "Nome", "Cliente", "Total", "Primeira", "Ultima"], 5)
+            [T("coluna.regra"), T("coluna.nome"), T("coluna.cliente"), T("coluna.total"), T("coluna.primeira"), T("coluna.ultima")], 5)
         self.bloqueios.sortByColumn(5, Qt.DescendingOrder)
         dentro.addWidget(self.bloqueios)
-        self.abas.addTab(aba_bloqueios, "Bloqueios")
+        self.abas.addTab(aba_bloqueios, T("aba.bloqueios"))
 
         # Terceira: quem usa DNS nesta rede. Vem do COLETOR, nao do
         # resolvedor -- ver o docstring da classe.
@@ -1197,10 +1177,10 @@ class VisaoDNS(AbaPapel):
         self.aviso_clientes.setWordWrap(True)
         dentro.addWidget(self.aviso_clientes)
         self.clientes = tabela(
-            ["Cliente", "Servidor consultado", "Usa este lojmIt", "Consultas",
-             "Primeira", "Ultima"], 3)
+            [T("coluna.cliente"), T("coluna.servidor_consultado"), T("coluna.usa_este_lojmit"), T("coluna.consultas"),
+             T("coluna.primeira"), T("coluna.ultima")], 3)
         dentro.addWidget(self.clientes)
-        self.abas.addTab(aba_clientes, "Clientes")
+        self.abas.addTab(aba_clientes, T("aba.clientes"))
 
         # Quarta: as listas em si. Duas especies, e varias listas em cada --
         # a 'propria', escrita a mao, e as coladas pelo operador.
@@ -1212,10 +1192,10 @@ class VisaoDNS(AbaPapel):
             "negados", self.painel, self.no, self.avisar, self.recarrega_listas)
         self.painel_permitidos = PainelListasDNS(
             "permitidos", self.painel, self.no, self.avisar, self.recarrega_listas)
-        self.especies.addTab(self.painel_negados, "Blacklists")
-        self.especies.addTab(self.painel_permitidos, "Whitelists")
+        self.especies.addTab(self.painel_negados, T("aba.blacklists"))
+        self.especies.addTab(self.painel_permitidos, T("aba.whitelists"))
         dentro.addWidget(self.especies)
-        self.abas.addTab(aba_listas, "Listas")
+        self.abas.addTab(aba_listas, T("aba.listas"))
 
         self.leiaute.addWidget(self.abas)
         self.recarrega_listas()
@@ -1232,8 +1212,8 @@ class VisaoDNS(AbaPapel):
         listas = dados.get("listas") or {}
         self.painel_negados.mostra(listas.get("negados") or [])
         self.painel_permitidos.mostra(listas.get("permitidos") or [])
-        self.especies.setTabText(0, f"Blacklists ({len(listas.get('negados') or [])})")
-        self.especies.setTabText(1, f"Whitelists ({len(listas.get('permitidos') or [])})")
+        self.especies.setTabText(0, T("aba.contagem").format(T("aba.blacklists"), len(listas.get("negados") or [])))
+        self.especies.setTabText(1, T("aba.contagem").format(T("aba.whitelists"), len(listas.get("permitidos") or [])))
 
     def _aplica_filtro(self, texto=""):
         texto = (texto or self.filtro.text()).strip().lower()
@@ -1247,41 +1227,40 @@ class VisaoDNS(AbaPapel):
             self.bloqueios.setRowHidden(i, not casa)
             escondidas += not casa
         total = self.bloqueios.rowCount()
-        self.abas.setTabText(1, f"Bloqueios ({total - escondidas}"
-                                + (f" de {total}" if escondidas else "") + ")")
+        self.abas.setTabText(1, T("aba.contagem").format(T("aba.bloqueios"), f"{total - escondidas}"
+                                + (T("aba.bloqueios_de").format(total) if escondidas else "")))
 
     def preenche(self, dados):
         configuracao = dados.get("configuracao") or {}
         acima = dados.get("acima") or {}
         self.resumo.setText(
-            f"{dados.get('ativo', '?')}  -  "
-            f"{dados.get('negados', 0)} negados, {dados.get('permitidos', 0)} excecoes")
+            T("texto.negados_excecoes").format(dados.get('ativo', '?'), dados.get('negados', 0), dados.get('permitidos', 0)))
 
         preenche_ficha(self.ficha_local, [
-            ("servico", f"{dados.get('ativo', '?')} / {dados.get('habilitado', '?')}"),
-            ("escuta em", ", ".join(dados.get("escuta") or [])),
-            ("nomes negados", str(dados.get("negados", 0))),
-            ("excecoes", str(dados.get("permitidos", 0))),
-            ("resposta a nome negado", configuracao.get("blocked_query_response")),
-            ("cache", ("ligado, " + configuracao.get("cache_size", "?") + " entradas")
+            (T("ficha.servico"), f"{dados.get('ativo', '?')} / {dados.get('habilitado', '?')}"),
+            (T("ficha.escuta_em"), ", ".join(dados.get("escuta") or [])),
+            (T("ficha.nomes_negados"), str(dados.get("negados", 0))),
+            (T("ficha.excecoes"), str(dados.get("permitidos", 0))),
+            (T("ficha.resposta_a_nome_negado"), configuracao.get("blocked_query_response")),
+            (T("ficha.cache"), ("ligado, " + configuracao.get("cache_size", "?") + " entradas")
              if configuracao.get("cache") == "true" else "desligado"),
-            ("registra consultas", "nao, so as negadas (decisao de arquitetura)"),
+            (T("ficha.registra_consultas"), T("ficha.nao_so_as_negadas")),
         ])
         preenche_ficha(self.ficha_acima, [
-            ("servidor em uso", acima.get("servidor")),
-            ("latencia inicial", (acima.get("latencia") + " ms")
+            (T("ficha.servidor_em_uso"), acima.get("servidor")),
+            (T("ficha.latencia_inicial"), (acima.get("latencia") + " ms")
              if acima.get("latencia") else None),
-            ("candidatos vivos", acima.get("servidores_vivos")),
-            ("escolha", "fixada em " + configuracao["server_names"]
+            (T("ficha.candidatos_vivos"), acima.get("servidores_vivos")),
+            (T("ficha.escolha"), "fixada em " + configuracao["server_names"]
              if configuracao.get("server_names") not in (None, "[]")
              else "automatica, pela latencia"),
-            ("protocolos aceitos", ", ".join(
+            (T("ficha.protocolos_aceitos"), ", ".join(
                 p for p, chave in (("DNSCrypt", "dnscrypt_servers"), ("DoH", "doh_servers"))
                 if configuracao.get(chave) == "true")),
-            ("exige nao guardar log", configuracao.get("require_nolog")),
-            ("exige nao filtrar", configuracao.get("require_nofilter")),
-            ("exige DNSSEC", configuracao.get("require_dnssec")),
-            ("lista de servidores de", acima.get("fontes_de")),
+            (T("ficha.exige_nao_guardar_log"), configuracao.get("require_nolog")),
+            (T("ficha.exige_nao_filtrar"), configuracao.get("require_nofilter")),
+            (T("ficha.exige_dnssec"), configuracao.get("require_dnssec")),
+            (T("ficha.lista_de_servidores_de"), acima.get("fontes_de")),
         ])
 
         # Os enderecos em que este resolvedor atende: e por eles que se sabe
@@ -1308,18 +1287,13 @@ class VisaoDNS(AbaPapel):
                     if item is not None:
                         item.setForeground(QBrush(QColor(190, 60, 60)))
         self.clientes.setSortingEnabled(True)
-        self.abas.setTabText(2, f"Clientes ({len(linhas)})")
+        self.abas.setTabText(2, T("aba.contagem").format(T("aba.clientes"), len(linhas)))
         self.aviso_clientes.setText(
-            f"Contado pelo coletor na entrada da LAN, dia {dados.get('dia', '?')}. "
-            "Nao ha aqui ligacao entre cliente e nome consultado: o resolvedor "
-            "nao registra consulta."
-            + (f"  <b>{fora} em vermelho falam com DNS de fora</b> e escapam "
-               "da lista de negacao." if fora else ""))
+            T("texto.contado_pelo_coletor").format(dados.get("dia", "?"))
+            + (T("texto.falam_com_dns_de_fora").format(fora) if fora else ""))
         if not linhas:
             self.aviso_clientes.setText(
-                "Sem contagem por cliente. Ou o coletor nao esta instalado aqui, "
-                "ou ele le o DNS na WAN (sem LAN_IF), onde a origem ja foi "
-                "mascarada e nao existe mais.")
+                T("texto.sem_contagem_por_cliente"))
 
         linhas = dados.get("bloqueios", [])
         self.bloqueios.setSortingEnabled(False)
@@ -1340,17 +1314,15 @@ class AbaWifi(AbaPapel):
 
     def monta(self):
         self.clientes = tabela(
-            ["MAC", "Sinal (dBm)", "Conectado", "Inativo", "RX (kB)", "TX (kB)"], 0)
+            [T("coluna.mac"), T("coluna.sinal_dbm"), T("coluna.conectado"), T("coluna.inativo"), T("coluna.rx_kb"), T("coluna.tx_kb")], 0)
         self.clientes.sortByColumn(0, Qt.AscendingOrder)
-        self.leiaute.addWidget(QLabel("Associados ao radio:"))
+        self.leiaute.addWidget(QLabel(T("texto.associados_ao_radio")))
         self.leiaute.addWidget(self.clientes)
 
     def preenche(self, dados):
         rede = dados.get("rede") or {}
         self.resumo.setText(
-            f"{dados.get('ativo', '?')}  -  SSID '{rede.get('ssid', '?')}'"
-            f"  -  canal {rede.get('channel', '?')}  -  radio {dados.get('radio', '?')}"
-            f" em {dados.get('ponte', '-')}")
+            T("texto.ssid_canal_radio_em").format(dados.get('ativo', '?'), rede.get('ssid', '?'), rede.get('channel', '?'), dados.get('radio', '?'), dados.get('ponte', '-')))
         linhas = dados.get("clientes", [])
         self.clientes.setSortingEnabled(False)
         self.clientes.setRowCount(len(linhas))
@@ -1450,14 +1422,14 @@ class DiagramaFirewall(QWidget):
         pintor.drawRoundedRect(x, y + 2, largura, altura, 4, 4)
         pintor.setPen(fraco)
         pintor.drawText(x + 6, y + 2, largura - 12, altura, Qt.AlignLeft | Qt.AlignVCenter,
-                        "nenhuma casou:")
+                        T("texto.nenhuma_casou"))
         pintor.setPen(cor.darker(150))
         fonte = pintor.font()
         fonte.setBold(True)
         pintor.setFont(fonte)
         pintor.drawText(x + 6, y + 2, largura - 12, altura,
                         Qt.AlignRight | Qt.AlignVCenter,
-                        (politica or "sem politica").upper())
+                        (politica or T("texto.sem_politica")).upper())
         fonte.setBold(False)
         pintor.setFont(fonte)
 
@@ -1472,7 +1444,7 @@ class DiagramaFirewall(QWidget):
 
         if not self.cadeias:
             pintor.setPen(fraco)
-            pintor.drawText(self.rect(), Qt.AlignCenter, "sem cadeias para desenhar")
+            pintor.drawText(self.rect(), Qt.AlignCenter, T("texto.sem_cadeias"))
             return
 
         largura_coluna = max(self.LARGURA_MINIMA,
@@ -1506,8 +1478,9 @@ class DiagramaFirewall(QWidget):
             pintor.setPen(fraco)
             pintor.drawText(x + 6, y + 3 + linha, largura - 12, linha, Qt.AlignLeft,
                             metrica.elidedText(
-                                f"{cadeia.get('gancho') or '-'}, politica "
-                                f"{cadeia.get('politica') or '-'}",
+                                T("texto.gancho_politica").format(
+                                    cadeia.get("gancho") or "-",
+                                    cadeia.get("politica") or "-"),
                                 Qt.ElideRight, largura - 12))
             y += linha * 2 + 6 + 8
 
@@ -1526,7 +1499,7 @@ class DiagramaFirewall(QWidget):
             if not regras:
                 pintor.setPen(fraco)
                 pintor.drawText(x + 6, y, largura - 12, linha, Qt.AlignLeft,
-                                "(nenhuma regra)")
+                                T("texto.nenhuma_regra"))
                 y += linha + 6
 
             for ordem, regra in enumerate(regras, start=1):
@@ -1553,11 +1526,11 @@ class DiagramaFirewall(QWidget):
                 pintor.setPen(texto_cor)
                 pintor.drawText(
                     x + 6, y + 2, largura - 12, linha, Qt.AlignLeft,
-                    metrica.elidedText(f"{ordem}. {regra.get('texto') or '(sem condicao)'}",
+                    metrica.elidedText(f"{ordem}. {regra.get("texto") or T("texto.sem_condicao")}",
                                        Qt.ElideRight, largura - 12))
                 pintor.setPen(cor.darker(150))
                 pintor.drawText(x + 6, y + 2 + linha, largura - 12, linha, Qt.AlignLeft,
-                                (regra.get("veredito") or "sem veredito").upper())
+                                (regra.get("veredito") or T("texto.sem_veredito")).upper())
                 pintor.drawText(x + 6, y + 2 + linha, largura - 12, linha, Qt.AlignRight,
                                 f"{pacotes} pac")
                 fonte.setBold(False)
@@ -1579,9 +1552,7 @@ class DiagramaFirewall(QWidget):
 
         pintor.setPen(fraco)
         pintor.setBrush(Qt.NoBrush)
-        rodape = ("Ordem de cima para baixo: a primeira regra que casa encerra; "
-                  "chegando ao pe, vale a politica. Barra em escala log. "
-                  "Contorno grosso = DROP que esta de fato barrando trafego.")
+        rodape = T("texto.rodape_cascata")
         pintor.drawText(self.FOLGA, self.height() - linha - 2,
                         self.width() - 2 * self.FOLGA, linha, Qt.AlignLeft,
                         metrica.elidedText(rodape, Qt.ElideRight,
@@ -1600,19 +1571,10 @@ class DialogoFirewall(QDialog):
     def __init__(self, especie, pai=None, tabelas=(), cadeias=()):
         super().__init__(pai)
         self.especie = especie
-        self.setWindowTitle(f"GHop - nova {especie}")
+        self.setWindowTitle(T("janela.ghop_nova").format(especie))
         leiaute = QVBoxLayout(self)
-        titulos = {
-            "tabela": ("Nova tabela",
-                       "Tabela e so o recipiente: sozinha nao muda nada no trafego."),
-            "cadeia": ("Nova cadeia",
-                       "Com gancho, ela e percorrida por todo pacote naquele ponto. "
-                       "Sem gancho, so por quem saltar para ela."),
-            "regra": ("Nova regra",
-                      "Deixe em branco o que nao importa. Sem nenhuma condicao a "
-                      "regra pega tudo, e o agente recusa."),
-        }
-        titulo, ajuda = titulos[especie]
+        titulo = T("texto.nova_%s" % especie)
+        ajuda = T("ajuda.nova_%s" % especie)
         leiaute.addWidget(cabecalho(titulo, ajuda))
         formulario = QFormLayout()
         self.campos = {}
@@ -1629,32 +1591,32 @@ class DialogoFirewall(QDialog):
             formulario.addRow(rotulo, widget)
             return widget
 
-        caixa("familia", "Familia:", ("inet", "ip", "ip6"))
+        caixa("familia", T("campo.familia"), ("inet", "ip", "ip6"))
         if especie == "tabela":
-            caixa("nome", "Nome:", dica="ex.: painel")
+            caixa("nome", T("campo.nome"), dica=T("dica.ex_painel"))
         elif especie == "cadeia":
-            caixa("tabela", "Tabela:", tabelas or ("filter",), editavel=True)
-            caixa("nome", "Nome:", dica="ex.: bloqueios")
-            caixa("tipo", "Tipo:", ("filter", "nat", "route"))
-            caixa("gancho", "Gancho:", ("", "input", "forward", "output",
+            caixa("tabela", T("campo.tabela"), tabelas or ("filter",), editavel=True)
+            caixa("nome", T("campo.nome"), dica="ex.: bloqueios")
+            caixa("tipo", T("campo.tipo"), ("filter", "nat", "route"))
+            caixa("gancho", T("campo.gancho"), ("", "input", "forward", "output",
                                         "prerouting", "postrouting"))
-            caixa("prioridade", "Prioridade:", dica="0")
-            caixa("politica", "Politica:", ("accept", "drop"))
+            caixa("prioridade", T("campo.prioridade"), dica="0")
+            caixa("politica", T("campo.politica"), ("accept", "drop"))
         else:
-            caixa("tabela", "Tabela:", tabelas or ("filter",), editavel=True)
-            caixa("cadeia", "Cadeia:", cadeias or ("input",), editavel=True)
-            caixa("iifname", "Entra por:", dica="interface, ex.: br0")
-            caixa("oifname", "Sai por:", dica="interface, ex.: enp1s0")
-            caixa("saddr", "Origem:", dica="ex.: 192.168.101.50 ou 10.0.0.0/8")
-            caixa("daddr", "Destino:", dica="ex.: 1.1.1.1")
-            caixa("protocolo", "Protocolo:", ("", "tcp", "udp", "icmp"))
-            caixa("sport", "Porta de origem:", dica="ex.: 1024-65535")
-            caixa("dport", "Porta de destino:", dica="ex.: 443 ou 80-90")
-            caixa("estado", "Estado:", ("", "new", "established", "related",
+            caixa("tabela", T("campo.tabela"), tabelas or ("filter",), editavel=True)
+            caixa("cadeia", T("campo.cadeia"), cadeias or ("input",), editavel=True)
+            caixa("iifname", T("campo.entra_por"), dica="interface, ex.: br0")
+            caixa("oifname", T("campo.sai_por"), dica="interface, ex.: enp1s0")
+            caixa("saddr", T("campo.origem"), dica="ex.: 192.168.101.50 ou 10.0.0.0/8")
+            caixa("daddr", T("campo.destino"), dica="ex.: 1.1.1.1")
+            caixa("protocolo", T("campo.protocolo"), ("", "tcp", "udp", "icmp"))
+            caixa("sport", T("campo.porta_de_origem"), dica="ex.: 1024-65535")
+            caixa("dport", T("campo.porta_de_destino"), dica="ex.: 443 ou 80-90")
+            caixa("estado", T("campo.estado"), ("", "new", "established", "related",
                                         "invalid", "established,related"))
-            caixa("veredito", "O que fazer:", ("accept", "drop", "reject",
+            caixa("veredito", T("campo.o_que_fazer"), ("accept", "drop", "reject",
                                                "masquerade", "counter"))
-            caixa("nota", "Nota:", dica="por que esta regra existe")
+            caixa("nota", T("campo.nota"), dica=T("dica.por_que_regra"))
         leiaute.addLayout(formulario)
 
         botoes = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1706,9 +1668,7 @@ class VisaoRoteamento(AbaPapel):
         resumo = ", ".join(f"{c}={v}" for c, v in campos.items())
         if QMessageBox.question(
                 self, "GHop",
-                f"Criar {especie} em '{self.no}'?\n\n{resumo}\n\n"
-                "O ruleset inteiro sera reaplicado. Isto muda o firewall da "
-                "maquina do outro lado.",
+                T("msg.criar_em_o_ruleset_inteiro").format(especie, self.no, resumo),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         self._manda(especie, campos)
@@ -1718,12 +1678,11 @@ class VisaoRoteamento(AbaPapel):
         item = self.meus.item(linha, 0) if linha >= 0 else None
         alvo = item.data(PAPEL_LINHA) if item else None
         if not alvo:
-            self.avisar("selecione na tabela de baixo o que apagar.")
+            self.avisar(T("msg.selecione_na_tabela_de_baixo"))
             return
         if QMessageBox.question(
                 self, "GHop",
-                f"Apagar {alvo['especie'][:-1]} '{alvo['id']}' de '{self.no}'?\n\n"
-                "O ruleset inteiro sera reaplicado sem ela.",
+                T("msg.apagar_de_o_ruleset_inteiro").format(alvo['especie'][:-1], alvo['id'], self.no),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         self._manda("remover", {"especie": alvo["especie"], "id": alvo["id"]})
@@ -1738,8 +1697,7 @@ class VisaoRoteamento(AbaPapel):
     @Slot(object)
     def _firewall_mudou(self, dados):
         self.aviso_firewall.setText(
-            f"{dados.get('acao')}: {dados.get('tabelas')} tabela(s), "
-            f"{dados.get('cadeias')} cadeia(s), {dados.get('regras')} regra(s)")
+            T("texto.tabela_s_cadeia_s").format(dados.get('acao'), dados.get('tabelas'), dados.get('cadeias'), dados.get('regras')))
         # Uma mudanca no firewall muda TODAS as telas desta visao: as tabelas
         # de Dados, o desenho e o proximo ponto dos graficos. Por isso se
         # recarrega a visao inteira, e nao so esta aba.
@@ -1756,15 +1714,15 @@ class VisaoRoteamento(AbaPapel):
         dentro = QVBoxLayout(aba_dados)
         dentro.setContentsMargins(0, 6, 0, 0)
         self.cadeias = tabela(
-            ["Familia", "Tabela", "Cadeia", "Gancho", "Prioridade", "Politica"], 0)
+            [T("coluna.familia"), T("coluna.tabela"), T("coluna.cadeia"), T("coluna.gancho"), T("coluna.prioridade"), T("coluna.politica")], 0)
         self.cadeias.sortByColumn(1, Qt.AscendingOrder)
-        dentro.addWidget(QLabel("Cadeias:"))
+        dentro.addWidget(QLabel(T("texto.cadeias")))
         dentro.addWidget(self.cadeias, 1)
         self.regras = tabela(
-            ["Tabela", "Cadeia", "Regra", "Pacotes", "Bytes"], 3)
-        dentro.addWidget(QLabel("Regras, com o que cada uma ja pegou:"))
+            [T("coluna.tabela"), T("coluna.cadeia"), T("coluna.regra"), T("coluna.pacotes"), T("coluna.bytes")], 3)
+        dentro.addWidget(QLabel(T("texto.regras_com_o_que")))
         dentro.addWidget(self.regras, 3)
-        self.abas.addTab(aba_dados, "Dados")
+        self.abas.addTab(aba_dados, T("aba.dados"))
 
         # 'Graficos': quanto passa por cada cadeia, nos mesmos 10 minutos que
         # o agente ja amostra. A tabela diz o total desde que a regra existe;
@@ -1776,7 +1734,7 @@ class VisaoRoteamento(AbaPapel):
         self.graficos_leiaute.setContentsMargins(0, 6, 0, 0)
         self.graficos_cadeia = {}
         rolagem_graficos.setWidget(caixa)
-        self.abas.addTab(rolagem_graficos, "Graficos")
+        self.abas.addTab(rolagem_graficos, T("aba.graficos"))
 
         # 'Rules' e o desenho: o caminho do pacote e a ordem das regras, que
         # e o que a tabela nao mostra bem. Vai dentro de uma area rolavel
@@ -1785,13 +1743,12 @@ class VisaoRoteamento(AbaPapel):
         dentro = QVBoxLayout(aba_desenho)
         dentro.setContentsMargins(0, 6, 0, 0)
         acoes = QHBoxLayout()
-        for especie, rotulo in (("tabela", "Nova tabela..."),
-                                ("cadeia", "Nova cadeia..."),
-                                ("regra", "Nova regra...")):
+        for especie in ("tabela", "cadeia", "regra"):
+            rotulo = T("botao.nova_%s" % especie)
             botao = QPushButton(rotulo)
             botao.clicked.connect(lambda _=False, e=especie: self.cria(e))
             acoes.addWidget(botao)
-        self.botao_tirar = QPushButton("Apagar a selecionada")
+        self.botao_tirar = QPushButton(T("botao.apagar_a_selecionada"))
         self.botao_tirar.clicked.connect(self.apaga)
         acoes.addWidget(self.botao_tirar)
         acoes.addStretch()
@@ -1809,10 +1766,10 @@ class VisaoRoteamento(AbaPapel):
         # O que o PAINEL escreveu, separado do resto: as regras base e os
         # fragmentos dos outros papeis nao se apagam daqui, e misturar as
         # duas coisas numa lista so faria parecer que se apagam.
-        dentro.addWidget(QLabel("Escrito pelo painel (so isto se apaga daqui):"))
-        self.meus = tabela(["O que", "Onde", "Detalhe", "id"], 0)
+        dentro.addWidget(QLabel(T("texto.escrito_pelo_painel_so")))
+        self.meus = tabela([T("coluna.o_que"), T("coluna.onde"), T("coluna.detalhe"), T("coluna.id")], 0)
         dentro.addWidget(self.meus, 1)
-        self.abas.addTab(aba_desenho, "Rules")
+        self.abas.addTab(aba_desenho, T("aba.rules"))
 
         aba_texto = QWidget()
         dentro = QVBoxLayout(aba_texto)
@@ -1824,16 +1781,13 @@ class VisaoRoteamento(AbaPapel):
         fonte.setStyleHint(QFont.Monospace)
         self.texto.setFont(fonte)
         dentro.addWidget(self.texto)
-        self.abas.addTab(aba_texto, "Raw")
+        self.abas.addTab(aba_texto, T("aba.raw"))
 
         self.leiaute.addWidget(self.abas)
 
     def preenche(self, dados):
         self.resumo.setText(
-            f"{dados.get('ativo', '?')}  -  WAN {dados.get('wan') or '?'}"
-            f"  -  LAN {dados.get('lan') or '?'}"
-            f"  -  encaminhamento {'ligado' if dados.get('encaminha') else 'DESLIGADO'}"
-            f"  -  fragmentos: {', '.join(dados.get('fragmentos') or []) or 'nenhum'}")
+            T("texto.wan_lan_encaminhamento_fragmentos").format(dados.get('ativo', '?'), dados.get('wan') or '?', dados.get('lan') or '?', 'ligado' if dados.get('encaminha') else 'DESLIGADO', ', '.join(dados.get('fragmentos') or []) or 'nenhum'))
 
         linhas = dados.get("cadeias", [])
         self.cadeias.setSortingEnabled(False)
@@ -1868,9 +1822,9 @@ class VisaoRoteamento(AbaPapel):
         # Trocar o texto perde a rolagem; guardar e devolver mantem o lugar
         # em que se estava lendo quando a tela se atualiza.
         onde = self.texto.verticalScrollBar().value()
-        self.texto.setPlainText(dados.get("texto") or "(o agente nao devolveu o ruleset)")
+        self.texto.setPlainText(dados.get("texto") or T("texto.sem_ruleset"))
         self.texto.verticalScrollBar().setValue(onde)
-        self.abas.setTabText(0, f"Dados ({len(linhas)} regras)")
+        self.abas.setTabText(0, T("aba.dados_regras").format(len(linhas)))
         self.diagrama.atualiza(dados.get("cadeias") or [], linhas)
 
         series = dados.get("series") or {}
@@ -1889,9 +1843,9 @@ class VisaoRoteamento(AbaPapel):
                 self.graficos_cadeia[nome] = grafico
                 self.graficos_leiaute.addWidget(grafico)
             self.graficos_cadeia[nome].atualiza(series[nome], agora, janela)
-        self.abas.setTabText(1, f"Graficos ({len(series)})")
+        self.abas.setTabText(1, T("aba.contagem").format(T("aba.graficos"), len(series)))
         if not series:
-            self.abas.setTabText(1, "Graficos (amostrando...)")
+            self.abas.setTabText(1, T("aba.graficos_amostrando"))
 
         # O que o painel escreveu, para poder apagar depois.
         painel = dados.get("painel") or {}
@@ -1904,9 +1858,10 @@ class VisaoRoteamento(AbaPapel):
             entradas.append(("tabela", f'{tabela_["familia"]} {tabela_["nome"]}', "",
                              f'{tabela_["familia"]}/{tabela_["nome"]}'))
         for cadeia in painel.get("cadeias") or []:
-            detalhe = (f'{cadeia.get("tipo")} hook {cadeia.get("gancho")} '
-                       f'prio {cadeia.get("prioridade")} politica {cadeia.get("politica")}'
-                       if cadeia.get("gancho") else "sem gancho")
+            detalhe = (T("texto.cadeia_detalhe").format(
+                           cadeia.get("tipo"), cadeia.get("gancho"),
+                           cadeia.get("prioridade"), cadeia.get("politica"))
+                       if cadeia.get("gancho") else T("texto.sem_gancho"))
             entradas.append(("cadeia", f'{cadeia["tabela"]}/{cadeia["nome"]}', detalhe,
                              f'{cadeia["familia"]}/{cadeia["tabela"]}/{cadeia["nome"]}'))
         for regra in painel.get("regras") or []:
@@ -1929,8 +1884,8 @@ class VisaoRoteamento(AbaPapel):
             self.meus.setItem(i, 3, celula(chave))
         self.meus.setSortingEnabled(True)
         self.aviso_firewall.setText(
-            f"{len(entradas)} item(ns) escritos pelo painel" if entradas
-            else "nada escrito pelo painel neste no")
+            T("texto.itens_escritos").format(len(entradas)) if entradas
+            else T("texto.nada_escrito"))
 
 
 class DialogoRegraFiltro(QDialog):
@@ -1943,38 +1898,32 @@ class DialogoRegraFiltro(QDialog):
 
     def __init__(self, pai=None):
         super().__init__(pai)
-        self.setWindowTitle("GHop - regra do filtro")
+        self.setWindowTitle(T("janela.regra_filtro"))
         self.resize(520, 0)
         leiaute = QVBoxLayout(self)
         leiaute.addWidget(cabecalho(
-            "Nova regra do filtro",
-            "Compara o nome que a conexao PEDE: o SNI do TLS ou o Host do HTTP."))
+            T("texto.nova_regra_do_filtro"),
+            T("texto.compara_o_nome_que")))
 
         formulario = QFormLayout()
         self.acao = QComboBox()
-        self.acao.addItem("bloquear -- nao deixa sair", "bloquear")
-        self.acao.addItem("permitir -- excecao, vence as regras abaixo", "permitir")
+        self.acao.addItem(T("opcao.bloquear_nao_sai"), "bloquear")
+        self.acao.addItem(T("opcao.permitir_excecao"), "permitir")
         formulario.addRow("Acao:", self.acao)
         self.tipo = QComboBox()
-        for chave, texto in (
-                ("sufixo", "sufixo -- o dominio e todos os subdominios"),
-                ("exato", "exato -- so este nome"),
-                ("prefixo", "prefixo -- nomes que comecam assim"),
-                ("contem", "contem -- nomes que tenham este pedaco")):
-            self.tipo.addItem(texto, chave)
-        formulario.addRow("Casa por:", self.tipo)
+        for chave in ("sufixo", "exato", "prefixo", "contem"):
+            self.tipo.addItem(T("opcao.casa_%s" % chave), chave)
+        formulario.addRow(T("campo.casa_por"), self.tipo)
         self.valor = QLineEdit()
-        self.valor.setPlaceholderText("exemplo.com")
-        formulario.addRow("Nome:", self.valor)
+        self.valor.setPlaceholderText(T("dica.exemplo_com"))
+        formulario.addRow(T("campo.nome"), self.valor)
         self.nota = QLineEdit()
-        self.nota.setPlaceholderText("por que esta regra existe (opcional)")
+        self.nota.setPlaceholderText(T("dica.por_que_esta_regra"))
         formulario.addRow("Nota:", self.nota)
         leiaute.addLayout(formulario)
 
         aviso = QLabel(
-            "A ORDEM importa: a primeira regra que casa decide. Uma excecao "
-            "('permitir') so vale se estiver ACIMA do bloqueio que ela abre -- "
-            "use as setas na tabela para poe-la no lugar.")
+            T("texto.a_ordem_importa_a"))
         aviso.setWordWrap(True)
         aviso.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(aviso)
@@ -2015,16 +1964,16 @@ class VisaoFiltro(AbaPapel):
         dentro.setContentsMargins(0, 6, 0, 0)
 
         linha = QHBoxLayout()
-        linha.addWidget(QLabel("Politica padrao:"))
+        linha.addWidget(QLabel(T("texto.politica_padrao")))
         self.politica = QComboBox()
-        self.politica.addItem("permitir -- so bloqueia o que estiver nas regras", "permitir")
-        self.politica.addItem("bloquear -- lista branca: so sai o que as regras permitirem",
+        self.politica.addItem(T("opcao.permitir_so_bloqueia"), "permitir")
+        self.politica.addItem(T("opcao.bloquear_lista_branca"),
                               "bloquear")
         self.politica.activated.connect(self._muda_politica)
         linha.addWidget(self.politica, 1)
         dentro.addLayout(linha)
 
-        self.regras = tabela(["#", "Acao", "Casa por", "Nome", "Nota"], 0)
+        self.regras = tabela([T("coluna.texto"), T("coluna.acao"), T("coluna.casa_por"), T("coluna.nome"), T("coluna.nota")], 0)
         self.regras.setSortingEnabled(False)   # ordem e semantica, nao arrumacao
         self.regras.sortByColumn(0, Qt.AscendingOrder)
         dentro.addWidget(self.regras, 1)
@@ -2038,7 +1987,7 @@ class VisaoFiltro(AbaPapel):
             botao.clicked.connect(funcao)
             botoes.addWidget(botao)
         botoes.addStretch()
-        self.botao_enviar = QPushButton("Enviar ao no")
+        self.botao_enviar = QPushButton(T("botao.enviar_ao_no"))
         self.botao_enviar.clicked.connect(self._envia)
         botoes.addWidget(self.botao_enviar)
         dentro.addLayout(botoes)
@@ -2046,9 +1995,9 @@ class VisaoFiltro(AbaPapel):
         # Responder "e se?" sem esperar alguem tropecar na regra. E local: le
         # as regras do painel, nao fala com o no.
         teste = QHBoxLayout()
-        teste.addWidget(QLabel("Testar um nome:"))
+        teste.addWidget(QLabel(T("texto.testar_um_nome")))
         self.teste = QLineEdit()
-        self.teste.setPlaceholderText("www.exemplo.com")
+        self.teste.setPlaceholderText(T("dica.www_exemplo_com"))
         self.teste.textChanged.connect(self._testa)
         teste.addWidget(self.teste, 1)
         self.resultado_teste = QLabel("")
@@ -2058,30 +2007,29 @@ class VisaoFiltro(AbaPapel):
         self.divergencia = QLabel("")
         self.divergencia.setWordWrap(True)
         dentro.addWidget(self.divergencia)
-        self.abas.addTab(aba_regras, "Regras")
+        self.abas.addTab(aba_regras, T("aba.regras"))
 
         # ---- Servico: o que esta em vigor NO NO.
         aba_servico = QWidget()
         dentro = QVBoxLayout(aba_servico)
         dentro.setContentsMargins(0, 6, 0, 0)
-        self.ficha = tabela_chave_valor("O filtro nesta maquina")
+        self.ficha = tabela_chave_valor(T("texto.filtro_nesta_maquina"))
         dentro.addWidget(self.ficha, 1)
-        self.ficha_contagem = tabela_chave_valor("Conexoes desde que o servico subiu")
+        self.ficha_contagem = tabela_chave_valor(T("texto.conexoes_desde"))
         dentro.addWidget(self.ficha_contagem, 1)
-        self.abas.addTab(aba_servico, "Servico")
+        self.abas.addTab(aba_servico, T("aba.servico"))
 
         # ---- Bloqueios: o unico registro evento a evento deste papel.
         aba_bloqueios = QWidget()
         dentro = QVBoxLayout(aba_bloqueios)
         dentro.setContentsMargins(0, 6, 0, 0)
         dentro.addWidget(QLabel(
-            "Conexoes NEGADAS, somadas por regra, nome e cliente. "
-            "O que passou nao e registrado aqui nem em lugar nenhum:"))
+            T("texto.conexoes_negadas_somadas_por")))
         self.bloqueios = tabela(
-            ["Regra", "Nome", "Cliente", "Porta", "Total", "Primeira", "Ultima"], 6)
+            [T("coluna.regra"), T("coluna.nome"), T("coluna.cliente"), T("coluna.porta"), T("coluna.total"), T("coluna.primeira"), T("coluna.ultima")], 6)
         self.bloqueios.sortByColumn(6, Qt.DescendingOrder)
         dentro.addWidget(self.bloqueios)
-        self.abas.addTab(aba_bloqueios, "Bloqueios")
+        self.abas.addTab(aba_bloqueios, T("aba.bloqueios"))
 
         self.leiaute.addWidget(self.abas)
         self.mostra_regras()
@@ -2110,14 +2058,14 @@ class VisaoFiltro(AbaPapel):
                     item = self.regras.item(i, coluna)
                     if item is not None:
                         item.setForeground(QBrush(QColor(190, 60, 60)))
-        self.abas.setTabText(0, f"Regras ({len(dados['regras'])})")
+        self.abas.setTabText(0, T("aba.contagem").format(T("aba.regras"), len(dados["regras"])))
         self._testa()
         self._confere_divergencia()
 
     def _linha_escolhida(self):
         linhas = {i.row() for i in self.regras.selectedIndexes()}
         if len(linhas) != 1:
-            self.avisar("Escolha uma regra na tabela.")
+            self.avisar(T("msg.escolha_uma_regra_na_tabela"))
             return None
         return linhas.pop()
 
@@ -2165,12 +2113,7 @@ class VisaoFiltro(AbaPapel):
         politica = self.politica.currentData()
         if politica == "bloquear" and QMessageBox.question(
                 self, "GHop",
-                "Politica 'bloquear' e lista BRANCA: a partir do envio, nada sai "
-                "da LAN pelas portas 80 e 443 sem uma regra que permita -- "
-                "inclusive conexao sem nome legivel, que e a maioria do que nao "
-                "e navegador.\n\n"
-                "Quase tudo para de funcionar ate a lista estar completa. "
-                "Continuar?",
+                T("msg.politica_bloquear_e_lista_branca"),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             self.mostra_regras()
             return
@@ -2192,21 +2135,16 @@ class VisaoFiltro(AbaPapel):
             return
         cor = "#be3c3c" if acao == "bloquear" else "#2e7d32"
         self.resultado_teste.setText(
-            f"<b style='color:{cor}'>{acao}</b>  (por: {regra})")
+            T("texto.por").format(cor, acao, regra))
 
     def _envia(self):
         if QMessageBox.question(
                 self, "GHop",
-                f"As regras deste painel passam a valer em '{self.no}', "
-                "substituindo por inteiro as que estiverem la.\n\n"
-                "Vale para conexao NOVA: o que ja esta aberto continua ate "
-                "fechar. Se alguma regra estiver errada, a LAN perde acesso ao "
-                "que ela pegar -- e o desfazer e outra regra, ou desligar o "
-                "papel na tela Servicos.",
+                T("msg.as_regras_deste_painel_passam").format(self.no),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         self.botao_enviar.setEnabled(False)
-        self.estado.setText("enviando...")
+        self.estado.setText(T("texto.enviando"))
         tarefa = Tarefa(self.painel.sincroniza_filtro, self.no)
         tarefa.sinais.pronto.connect(self._enviou)
         tarefa.sinais.falhou.connect(self._falhou_enviar)
@@ -2219,13 +2157,13 @@ class VisaoFiltro(AbaPapel):
         if falhas:
             self.avisar(f"{self.no}: {'; '.join(falhas.values())}")
         else:
-            self.estado.setText(f"{aceitos.get(self.no, 0)} regra(s) enviadas")
+            self.estado.setText(T("texto.regra_s_enviadas").format(aceitos.get(self.no, 0)))
         self.recarrega()
 
     @Slot(str)
     def _falhou_enviar(self, mensagem):
         self.botao_enviar.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.avisar(f"{self.no}: {mensagem}")
 
     def _confere_divergencia(self, do_no=None):
@@ -2251,13 +2189,11 @@ class VisaoFiltro(AbaPapel):
                    for r in do_no.get("regras") or []])
         if iguais:
             self.divergencia.setStyleSheet("color: palette(mid);")
-            self.divergencia.setText(f"Em vigor em {self.no}, iguais a estas.")
+            self.divergencia.setText(T("texto.em_vigor_em_iguais").format(self.no))
         else:
             self.divergencia.setStyleSheet("color: #be3c3c;")
             self.divergencia.setText(
-                f"<b>Estas regras ainda NAO estao valendo em {self.no}.</b> "
-                f"La estao {len(do_no.get('regras') or [])} regra(s), politica "
-                f"'{do_no.get('politica')}'. Use 'Enviar ao no'.")
+                T("texto.estas_regras_ainda_nao").format(self.no, len(do_no.get('regras') or []), do_no.get('politica')))
 
     # ---------------------------------------------------- lado do no
 
@@ -2270,33 +2206,32 @@ class VisaoFiltro(AbaPapel):
         # resumo e a que fica sempre a vista, entao o aviso tem de estar
         # nela, e nao so na ficha da aba Servico.
         self.resumo.setText(
-            (f"{ativo}  -  {len(dados.get('regras') or [])} regra(s) em vigor, "
-             f"{contagem.get('bloqueadas', 0)} bloqueio(s)")
+            T("texto.regras_em_vigor").format(
+                ativo, len(dados.get("regras") or []), contagem.get("bloqueadas", 0))
             if redirecionando else
-            f"{ativo}, mas NAO FILTRA: sem redirecionamento no firewall")
+            T("texto.nao_filtra").format(ativo))
 
         preenche_ficha(self.ficha, [
-            ("servico", f"{ativo} / {dados.get('habilitado', '?')}"),
-            ("interface filtrada", dados.get("interface")),
-            ("politica em vigor", dados.get("politica")),
-            ("regras em vigor", str(len(dados.get("regras") or []))),
+            (T("ficha.servico"), f"{ativo} / {dados.get('habilitado', '?')}"),
+            (T("ficha.interface_filtrada"), dados.get("interface")),
+            (T("ficha.politica_em_vigor"), dados.get("politica")),
+            (T("ficha.regras_em_vigor"), str(len(dados.get("regras") or []))),
             # Servico de pe sem o redirecionamento no firewall nao ve nada.
             # Sem esta linha a tela diria 'ativo' e o operador acharia que
             # esta filtrando.
-            ("redirecionamento no firewall",
-             "sim" if redirecionando else "NAO -- o servico esta de pe mas nao "
-             "recebe trafego nenhum"),
-            ("le", "SNI do ClientHello (TLS) e cabecalho Host (HTTP)"),
-            ("descriptografa", "nao, e nao ha caminho para isso"),
-            ("registra", "so o que foi bloqueado"),
+            (T("ficha.redirecionamento_no_firewall"),
+             T("texto.sim") if redirecionando else T("texto.nao_recebe_trafego")),
+            (T("ficha.le"), T("ficha.sni_do_clienthello_tls")),
+            (T("ficha.descriptografa"), T("ficha.nao_e_nao_ha")),
+            (T("ficha.registra"), T("ficha.so_o_que_foi")),
         ])
         preenche_ficha(self.ficha_contagem, [
-            ("desde", contagem.get("desde")),
-            ("conexoes vistas", contagem.get("conexoes")),
-            ("permitidas", contagem.get("permitidas")),
-            ("bloqueadas", contagem.get("bloqueadas")),
+            (T("ficha.desde"), contagem.get("desde")),
+            (T("ficha.conexoes_vistas"), contagem.get("conexoes")),
+            (T("ficha.permitidas"), contagem.get("permitidas")),
+            (T("ficha.bloqueadas"), contagem.get("bloqueadas")),
             # O tamanho do buraco, a vista: sem nome nao ha o que casar.
-            ("sem nome legivel (passaram sem filtro)", contagem.get("sem_nome")),
+            (T("ficha.sem_nome_legivel_passaram"), contagem.get("sem_nome")),
         ])
 
         linhas = dados.get("bloqueios") or []
@@ -2311,7 +2246,7 @@ class VisaoFiltro(AbaPapel):
             self.bloqueios.setItem(i, 5, celula(bloqueio.get("primeiro", "")))
             self.bloqueios.setItem(i, 6, celula(bloqueio.get("ultimo", "")))
         self.bloqueios.setSortingEnabled(True)
-        self.abas.setTabText(2, f"Bloqueios ({len(linhas)})")
+        self.abas.setTabText(2, T("aba.contagem").format(T("aba.bloqueios"), len(linhas)))
 
         self._confere_divergencia(dados)
 
@@ -2353,7 +2288,7 @@ class BarrasNucleos(QWidget):
         colunas = 2 if len(valores) > 8 else 1
         linhas = (len(valores) + colunas - 1) // colunas
         self.setMinimumHeight(max(40, linhas * (altura + 4) + 8))
-        self.setToolTip("uso de cada nucleo agora, em porcentagem")
+        self.setToolTip(T("ajuda.uso_de_cada_nucleo"))
         self.update()
 
     def paintEvent(self, _evento):
@@ -2413,10 +2348,10 @@ class VisaoMaquina(QWidget):
 
         leiaute = QVBoxLayout(self)
         controles = QHBoxLayout()
-        self.botao = QPushButton("Atualizar")
+        self.botao = QPushButton(T("botao.atualizar"))
         self.botao.clicked.connect(self.recarrega)
         controles.addWidget(self.botao)
-        self.ao_vivo = QCheckBox("Ao vivo (a cada 5 s)")
+        self.ao_vivo = QCheckBox(T("opcao.ao_vivo", s=5))
         self.ao_vivo.setChecked(True)
         controles.addWidget(self.ao_vivo)
         self.fundo = botao_segundo_plano()
@@ -2440,11 +2375,11 @@ class VisaoMaquina(QWidget):
         pilha.setContentsMargins(0, 0, 0, 0)
 
         self.cpu = GraficoTrafego(
-            "Processador (todos os nucleos somados)",
+            T("texto.processador_somado"),
             series=[("uso", QColor(150, 80, 160), 1)],
             formata=lambda v: f"{v:.0f}%")
         pilha.addWidget(self.cpu)
-        pilha.addWidget(QLabel("Por nucleo, agora:"))
+        pilha.addWidget(QLabel(T("texto.por_nucleo_agora")))
         self.nucleos = BarrasNucleos()
         pilha.addWidget(self.nucleos)
 
@@ -2456,9 +2391,9 @@ class VisaoMaquina(QWidget):
         self.memoria_texto = QLabel("")
         pilha.addWidget(self.memoria_texto)
 
-        pilha.addWidget(QLabel("Discos:"))
+        pilha.addWidget(QLabel(T("texto.discos")))
         self.discos = tabela(
-            ["Ponto", "Dispositivo", "Tipo", "Total", "Usado", "Livre", "Uso %"], 0)
+            [T("coluna.ponto"), T("coluna.dispositivo"), T("coluna.tipo"), T("coluna.total"), T("coluna.usado"), T("coluna.livre"), T("coluna.uso")], 0)
         self.discos.sortByColumn(0, Qt.AscendingOrder)
         self.discos.setMinimumHeight(120)
         pilha.addWidget(self.discos)
@@ -2513,16 +2448,11 @@ class VisaoMaquina(QWidget):
     @Slot(object)
     def preenche(self, dados):
         self.botao.setEnabled(True)
-        self.estado.setText(f"em {dados.get('quando')}")
+        self.estado.setText(T("texto.em").format(dados.get('quando')))
         basico = dados.get("basico") or {}
         carga = basico.get("carga") or []
         self.identificacao.setText(
-            f"<b>{basico.get('maquina', '?')}</b> &nbsp; {basico.get('sistema', '?')}"
-            f" &nbsp; kernel {basico.get('kernel', '?')} ({basico.get('arquitetura', '?')})"
-            f"<br>{basico.get('processador', 'processador desconhecido')}"
-            f" &nbsp; {basico.get('nucleos', '?')} nucleos"
-            f" &nbsp; carga {', '.join(str(c) for c in carga) if carga else '?'}"
-            f" &nbsp; ligada ha {self._ligada_ha(basico.get('ligada_ha'))}")
+            T("texto.nbsp_nbsp_kernel_nbsp").format(basico.get('maquina', '?'), basico.get('sistema', '?'), basico.get('kernel', '?'), basico.get('arquitetura', '?'), basico.get('processador', 'processador desconhecido'), basico.get('nucleos', '?'), ', '.join(str(c) for c in carga) if carga else '?', self._ligada_ha(basico.get('ligada_ha'))))
 
         agora = float(dados.get("agora") or time.time())
         janela = int(dados.get("janela") or 600)
@@ -2543,7 +2473,7 @@ class VisaoMaquina(QWidget):
             f"{tamanho_legivel(memoria.get('ram_total'))}"
             + (f"   -   swap {tamanho_legivel(memoria.get('swap_usada'))} de "
                f"{tamanho_legivel(swap_total)}" if swap_total else
-               "   -   sem swap nesta maquina"))
+               T("texto.sem_swap")))
 
         linhas = dados.get("discos") or []
         self.discos.setSortingEnabled(False)
@@ -2577,7 +2507,7 @@ class VisaoMaquina(QWidget):
     @Slot(str)
     def deu_errado(self, mensagem):
         self.botao.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.relogio.stop()
         self.avisar(f"{self.no}: {mensagem}")
 
@@ -2600,7 +2530,7 @@ class VisaoServicos(QWidget):
 
         leiaute = QVBoxLayout(self)
         controles = QHBoxLayout()
-        self.botao = QPushButton("Atualizar")
+        self.botao = QPushButton(T("botao.atualizar"))
         self.botao.clicked.connect(self.recarrega)
         controles.addWidget(self.botao)
         controles.addStretch()
@@ -2609,7 +2539,7 @@ class VisaoServicos(QWidget):
         controles.addWidget(self.estado)
         leiaute.addLayout(controles)
 
-        self.papeis = tabela(["Papel", "Unidade", "Estado", "No boot", "Origem"], 0)
+        self.papeis = tabela([T("coluna.papel"), T("coluna.unidade"), T("coluna.estado"), T("coluna.no_boot"), T("coluna.origem")], 0)
         self.papeis.sortByColumn(0, Qt.AscendingOrder)
         self.papeis.itemSelectionChanged.connect(self._ajusta_botoes)
         leiaute.addWidget(self.papeis, 2)
@@ -2626,7 +2556,7 @@ class VisaoServicos(QWidget):
         acoes.addStretch()
         leiaute.addLayout(acoes)
 
-        leiaute.addWidget(QLabel("Ultima acao:"))
+        leiaute.addWidget(QLabel(T("texto.ultima_acao")))
         self.saida = QPlainTextEdit()
         self.saida.setReadOnly(True)
         self.saida.setMaximumBlockCount(500)
@@ -2664,7 +2594,7 @@ class VisaoServicos(QWidget):
 
     def recarrega(self):
         self.botao.setEnabled(False)
-        self.estado.setText("consultando...")
+        self.estado.setText(T("texto.consultando"))
         tarefa = Tarefa(self.painel.papeis, self.no)
         tarefa.sinais.pronto.connect(self.preenche)
         tarefa.sinais.falhou.connect(self.deu_errado)
@@ -2674,7 +2604,7 @@ class VisaoServicos(QWidget):
     @Slot(object)
     def preenche(self, dados):
         self.botao.setEnabled(True)
-        self.estado.setText(f"em {dados.get('quando')}")
+        self.estado.setText(T("texto.em").format(dados.get('quando')))
         # A tabela mostra TODOS os papeis gerenciaveis, nao so os instalados:
         # sem isso nao haveria onde clicar para instalar o que falta.
         presentes = {p["chave"]: p for p in dados.get("papeis", [])}
@@ -2692,9 +2622,9 @@ class VisaoServicos(QWidget):
             # Papel sem unidade nao esta parado: nao tem servico para estar.
             # O lojmIt e um sysctl, e mostrar "?" ali fazia parecer avaria.
             if papel["instalado"] and not papel.get("ativo"):
-                estado = "?" if papel.get("unidade") else "sem servico proprio"
+                estado = "?" if papel.get("unidade") else T("texto.sem_servico_proprio")
             else:
-                estado = papel.get("ativo") or "nao instalado"
+                estado = papel.get("ativo") or T("texto.nao_instalado")
             self.papeis.setItem(i, 2, celula(estado))
             self.papeis.setItem(i, 3, celula(papel.get("habilitado", "")))
             # De onde o servico veio. 'ja estava aqui' quer dizer que nao
@@ -2720,14 +2650,12 @@ class VisaoServicos(QWidget):
         definicao = nucleo.ACOES_PAPEL[acao]
         resposta = QMessageBox.question(
             self, "GHop",
-            f"{definicao['rotulo']} o papel '{papel.get('rotulo')}' em "
-            f"'{self.no}'?\n\n{definicao['aviso']}\n\n"
-            "Isto muda a maquina do outro lado.",
+            T("msg.o_papel_em_isto_muda").format(definicao['rotulo'], papel.get('rotulo'), self.no, definicao['aviso']),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if resposta != QMessageBox.Yes:
             return
         self.saida.setPlainText(
-            f"pedindo '{acao}' para o papel '{papel['chave']}' em {self.no}...")
+            T("msg.pedindo_acao").format(acao, papel["chave"], self.no))
         tarefa = Tarefa(self.painel.papel, self.no, papel["chave"], acao)
         tarefa.sinais.pronto.connect(self.comecou)
         tarefa.sinais.falhou.connect(self.deu_errado)
@@ -2777,7 +2705,7 @@ class VisaoServicos(QWidget):
         # Perder o acompanhamento nao e erro de tela: a maquina pode ter
         # ficado sem rede exatamente por causa da acao pedida.
         self.relogio.stop()
-        self.saida.appendPlainText(f"(sem resposta de {self.no}: {mensagem})")
+        self.saida.appendPlainText(T("msg.sem_resposta_de").format(self.no, mensagem))
 
     def showEvent(self, evento):
         super().showEvent(evento)
@@ -2793,7 +2721,7 @@ class VisaoServicos(QWidget):
     @Slot(str)
     def deu_errado(self, mensagem):
         self.botao.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.avisar(f"{self.no}: {mensagem}")
 
 
@@ -2813,7 +2741,7 @@ class VisaoDados(QWidget):
 
         leiaute = QVBoxLayout(self)
         controles = QHBoxLayout()
-        self.botao = QPushButton("Atualizar")
+        self.botao = QPushButton(T("botao.atualizar"))
         self.botao.clicked.connect(self.recarrega)
         controles.addWidget(self.botao)
         controles.addStretch()
@@ -2822,9 +2750,9 @@ class VisaoDados(QWidget):
         leiaute.addLayout(controles)
 
         self.abas = QTabWidget()
-        self.abas.addTab(self._aba_trafego(), "Trafego")
-        self.abas.addTab(self._aba_rede(), "Rede")
-        self.abas.addTab(self._aba_rotas(), "Rotas")
+        self.abas.addTab(self._aba_trafego(), T("aba.trafego"))
+        self.abas.addTab(self._aba_rede(), T("aba.rede"))
+        self.abas.addTab(self._aba_rotas(), T("aba.rotas"))
         # As abas de papel (hoje so Wi-Fi) sao acrescentadas depois, so nos
         # nos que tiverem aquele papel -- e o agente que diz quais sao. O que
         # rende tela inteira (DHCP, DNS, Roteamento) nao entra aqui: vai ao
@@ -2850,7 +2778,7 @@ class VisaoDados(QWidget):
         leiaute = QVBoxLayout(aba)
         leiaute.setContentsMargins(0, 6, 0, 0)
         linha = QHBoxLayout()
-        self.ao_vivo = QCheckBox("Ao vivo (a cada 5 s, enquanto esta aba estiver a vista)")
+        self.ao_vivo = QCheckBox(T("opcao.ao_vivo_aba", s=5))
         self.ao_vivo.setChecked(True)
         linha.addWidget(self.ao_vivo)
         self.fundo = botao_segundo_plano()
@@ -2921,18 +2849,18 @@ class VisaoDados(QWidget):
         # Interface que sumiu do agente fica no grafico, congelada e marcada.
         for nome, grafico in self.graficos.items():
             if nome not in series:
-                grafico.setToolTip(f"{nome}: nao esta mais no agente")
+                grafico.setToolTip(T("ajuda.nao_esta_mais_no").format(nome))
         pontos = sum(len(p) for p in series.values())
         self.trafego_estado.setText(
-            f"{len(series)} interface(s), amostra a cada {dados.get('intervalo')} s, "
-            f"em {dados.get('quando')}" if pontos else
-            "o agente acabou de subir: ainda sem amostras")
+            T("texto.interfaces_amostra").format(
+                len(series), dados.get("intervalo"), dados.get("quando"))
+            if pontos else T("texto.agente_sem_amostras"))
         if self.pendentes:
             self._respondeu()
 
     @Slot(str)
     def trafego_falhou(self, mensagem):
-        self.trafego_estado.setText("falhou")
+        self.trafego_estado.setText(T("texto.falhou"))
         self.relogio.stop()
         self.avisar(f"{self.no}: {mensagem}")
         if self.pendentes:
@@ -2943,16 +2871,16 @@ class VisaoDados(QWidget):
         leiaute = QVBoxLayout(aba)
         leiaute.setContentsMargins(0, 6, 0, 0)
         self.rotas = tabela(
-            ["Destino", "Via", "Por", "Origem", "Protocolo", "Escopo",
-             "Metrica", "Tabela"], 0)
+            [T("coluna.destino"), T("coluna.via"), T("coluna.por"), T("coluna.origem"), T("coluna.protocolo"), T("coluna.escopo"),
+             T("coluna.metrica"), T("coluna.tabela")], 0)
         self.rotas.sortByColumn(7, Qt.AscendingOrder)
         leiaute.addWidget(self.rotas, 3)
         # As regras de politica sao o que um dia vai dizer "isto vai por
         # VPN". Hoje sao as tres de fabrica; ficam a vista mesmo assim.
-        leiaute.addWidget(QLabel("Regras de politica (ip rule):"))
+        leiaute.addWidget(QLabel(T("texto.regras_de_politica_ip")))
         # A tabela vem primeiro porque e o que a regra RESOLVE; a prioridade
         # e so a ordem em que sao consultadas, e cabe no tamanho do numero.
-        self.regras = tabela(["Tabela", "Prioridade", "De", "Para", "Marca", "Entrada"], 1)
+        self.regras = tabela([T("coluna.tabela"), T("coluna.prioridade"), T("coluna.de"), T("coluna.para"), T("coluna.marca"), T("coluna.entrada")], 1)
         cabeca = self.regras.horizontalHeader()
         cabeca.setSectionResizeMode(QHeaderView.ResizeToContents)
         # A sobra fica com a ultima coluna, em vez de inchar a primeira.
@@ -2969,8 +2897,8 @@ class VisaoDados(QWidget):
         self.rota.setTextInteractionFlags(Qt.TextSelectableByMouse)
         leiaute.addWidget(self.rota)
         self.interfaces = tabela(
-            ["Interface", "Tipo", "Estado", "MAC", "Enderecos", "Detalhe",
-             "MTU", "RX (MB)", "TX (MB)"], 0)
+            [T("coluna.interface"), T("coluna.tipo"), T("coluna.estado"), T("coluna.mac"), T("coluna.enderecos"), T("coluna.detalhe"),
+             T("coluna.mtu"), T("coluna.rx_mb"), T("coluna.tx_mb")], 0)
         # Interfaces se leem em ordem de nome, nao de contagem.
         self.interfaces.sortByColumn(0, Qt.AscendingOrder)
         leiaute.addWidget(self.interfaces)
@@ -2978,7 +2906,7 @@ class VisaoDados(QWidget):
 
     def recarrega(self):
         self.botao.setEnabled(False)
-        self.estado.setText("consultando...")
+        self.estado.setText(T("texto.consultando"))
         self.pendentes = 4
         for funcao, preenche in ((self.painel.interfaces, self.preenche),
                                  (self.painel.rotas, self.preenche_rotas),
@@ -3055,7 +2983,7 @@ class VisaoDados(QWidget):
             self.regras.setItem(i, 4, celula(regra.get("marca") or ""))
             self.regras.setItem(i, 5, celula(regra.get("entrada") or ""))
         self.regras.setSortingEnabled(True)
-        self.abas.setTabText(2, f"Rotas ({len(linhas)})")
+        self.abas.setTabText(2, T("aba.contagem").format(T("aba.rotas"), len(linhas)))
 
     @staticmethod
     def _detalhe(interface):
@@ -3082,7 +3010,7 @@ class VisaoDados(QWidget):
         rota = dados.get("rota_padrao") or {}
         self.rota.setText(
             f"Rota padrao: via {rota.get('via')} por {rota.get('por')}" if rota
-            else "Sem rota padrao.")
+            else T("texto.sem_rota_padrao"))
 
         linhas = dados.get("interfaces", [])
         self.interfaces.setSortingEnabled(False)
@@ -3106,13 +3034,13 @@ class VisaoDados(QWidget):
                     if item is not None:
                         item.setForeground(QBrush(QColor(140, 140, 140)))
         self.interfaces.setSortingEnabled(True)
-        self.abas.setTabText(1, f"Rede ({len(linhas)})")
-        self.estado.setText(f"em {dados.get('quando')}")
+        self.abas.setTabText(1, T("aba.contagem").format(T("aba.rede"), len(linhas)))
+        self.estado.setText(T("texto.em").format(dados.get('quando')))
 
     @Slot(str)
     def deu_errado(self, mensagem):
         self._respondeu()
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.avisar(f"{self.no}: {mensagem}")
 
 
@@ -3218,7 +3146,7 @@ class DesenhoTopologia(QWidget):
             segmentos.append((nome, detalhe.strip(), por_interface.get(nome, [])))
         # Aparelho sem interface conhecida nao pode simplesmente sumir.
         if por_interface.get(""):
-            segmentos.append(("(sem segmento)", "", por_interface[""]))
+            segmentos.append((T("texto.sem_segmento"), "", por_interface[""]))
         return segmentos
 
     def _planta(self, largura, metrica):
@@ -3276,7 +3204,7 @@ class DesenhoTopologia(QWidget):
             larg_saida = 190
             desce(meio, base_internet, y)
             caixa(meio - larg_saida // 2, y, larg_saida,
-                  self._nome_de(saida) or "roteador de cima",
+                  self._nome_de(saida) or T("texto.roteador_de_cima"),
                   (saida.get("ips") or ["-"])[0], saida)
             base = y + alto_chip
             y = base + self.FOLGA * 2
@@ -3321,12 +3249,12 @@ class DesenhoTopologia(QWidget):
             # O traco do trilho ate a caixa: e ele que diz "filho de".
             itens.append(("aresta", trilho, centro_vertical, recuo, centro_vertical))
             ultimo = centro_vertical
-            caixa(recuo, y, larg_segmento, nome, detalhe or "sem endereco", None)
+            caixa(recuo, y, larg_segmento, nome, detalhe or T("texto.sem_endereco"), None)
             base_segmento = y + alto_chip
             y = base_segmento + self.FOLGA
 
             if not hosts:
-                itens.append(("nota", recuo + 18, y, "ninguem visto aqui"))
+                itens.append(("nota", recuo + 18, y, T("texto.ninguem_visto")))
                 y += linha + self.FOLGA * 2
                 continue
 
@@ -3391,8 +3319,8 @@ class DesenhoTopologia(QWidget):
             if especie == "legenda":
                 _, x, y, _largura = item
                 for cor, rotulo in ((self.COR_VIVO, "falou agora"),
-                                    (self.COR_CALADO, "so concessao (calado)"),
-                                    (self.COR_ESTRANHO, "sem concessao nossa"),
+                                    (self.COR_CALADO, T("texto.so_concessao")),
+                                    (self.COR_ESTRANHO, T("texto.sem_concessao")),
                                     (self.COR_SAIDA, "saida")):
                     pintor.setPen(QPen(cor, 1))
                     pintor.setBrush(QColor(cor.red(), cor.green(), cor.blue(), 60))
@@ -3439,9 +3367,9 @@ class DesenhoTopologia(QWidget):
             if area.contains(posicao):
                 fontes = "+".join(host.get("fontes") or []) or "-"
                 leitura = nucleo.leitura_das_fontes(host.get("fontes") or [])
-                partes = [f"MAC: {host.get('mac') or '(sem MAC)'}",
+                partes = [f"MAC: {host.get("mac") or T("texto.sem_mac")}",
                           f"IP: {', '.join(host.get('ips') or []) or '-'}",
-                          f"visto por: {fontes}"]
+                          T("texto.visto_por").format(fontes)]
                 marca = nucleo.fabricante(host.get("mac", ""))
                 if marca:
                     partes.insert(1, f"fabricante: {marca}")
@@ -3450,7 +3378,7 @@ class DesenhoTopologia(QWidget):
                 if leitura:
                     partes.append(leitura)
                 if host.get("no"):
-                    partes.append(f"o endereco bate com o no '{host['no']}' (palpite)")
+                    partes.append(T("texto.endereco_bate").format(host["no"]))
                 self.setToolTip("\n".join(partes))
                 return
         self.setToolTip("")
@@ -3506,12 +3434,12 @@ class JanelaNo(QWidget):
 
         rotulo_tipo = nucleo.TIPOS.get(tipo, {}).get("rotulo", tipo)
         leiaute.addWidget(cabecalho(
-            f"No: {no}", f"{rotulo_tipo} - ghop-agente-{no}"))
+            T("texto.no").format(no), T("texto.ghop_agente").format(rotulo_tipo, no)))
 
         visoes = nucleo.visoes_de(tipo)
         if not visoes:
             leiaute.addWidget(QLabel(
-                f"Tipo '{tipo}' nao tem visao definida no nucleo."))
+                T("texto.tipo_nao_tem_visao").format(tipo)))
             return
 
         self.painel, self.avisar = painel, avisar
@@ -3581,28 +3509,26 @@ class JanelaNo(QWidget):
 class DialogoNo(QDialog):
     def __init__(self, pai=None):
         super().__init__(pai)
-        self.setWindowTitle("Cadastrar no")
+        self.setWindowTitle(T("janela.cadastrar_no"))
         leiaute = QVBoxLayout(self)
         leiaute.addWidget(cabecalho(
-            "Cadastrar no", "Uma maquina observada; o nome e a chave, o "
-            "endereco so diz onde bater"))
+            T("texto.cadastrar_no"), T("texto.uma_maquina_observada_o")))
         formulario = QFormLayout()
         leiaute.addLayout(formulario)
 
         self.nome = QLineEdit()
-        self.nome.setPlaceholderText("lojmIt")
+        self.nome.setPlaceholderText(T("dica.lojmit"))
         self.endereco = QLineEdit()
-        self.endereco.setPlaceholderText("192.168.101.1  ou  192.168.101.1:7000")
+        self.endereco.setPlaceholderText(T("dica.192_168_101_1"))
         self.tipo = QComboBox()
         for chave in sorted(nucleo.TIPOS):
             self.tipo.addItem(nucleo.TIPOS[chave]["rotulo"], chave)
 
-        formulario.addRow("Nome do no:", self.nome)
-        formulario.addRow("Endereco:", self.endereco)
+        formulario.addRow(T("campo.nome_do_no"), self.nome)
+        formulario.addRow(T("campo.endereco"), self.endereco)
         formulario.addRow("Tipo:", self.tipo)
 
-        aviso = QLabel("O cadastro confere o certificado antes de gravar:\n"
-                       "quem atender tem de ser 'ghop-agente-<nome>'.")
+        aviso = QLabel(T("texto.o_cadastro_confere_o"))
         aviso.setStyleSheet("color: palette(mid);")
         formulario.addRow(aviso)
 
@@ -3641,9 +3567,7 @@ class AbaColetado(QWidget):
             fatos.addRow("Primeiro:", QLabel(str(linha.get("primeiro", ""))))
             fatos.addRow("Ultimo:", QLabel(str(linha.get("ultimo", ""))))
         else:
-            sem = QLabel("Aberto pelo inventario: nao ha contadores aqui.<br>"
-                         "Para ver quantas vezes isto foi pedido, abra pelo no "
-                         "na analise de saida.")
+            sem = QLabel(T("texto.aberto_pelo_inventario_nao"))
             sem.setWordWrap(True)
             fatos.addRow(sem)
 
@@ -3654,17 +3578,13 @@ class AbaColetado(QWidget):
         elif classe == "branca":
             estado = f"<span style='color:#888'>whitelist</span> ({linha.get('regra')})"
         else:
-            estado = "<b>ainda sem nome</b>"
-        fatos.addRow("Classificacao:", QLabel(estado))
+            estado = T("texto.ainda_sem_nome")
+        fatos.addRow(T("campo.classificacao"), QLabel(estado))
         leiaute.addLayout(fatos)
 
         aviso = QLabel(
-            "E so isto que o GHop guarda: contadores, nao eventos. Sem "
-            "registro individual nao ha historico para abrir, e isso e "
-            "decisao de arquitetura, nao tela faltando."
-            if tem_leitura else
-            "Mesmo pelo no, o GHop so guarda contadores -- nao ha registro de "
-            "evento individual, e portanto nao ha historico para abrir.")
+            T("texto.so_contadores") if tem_leitura
+            else T("texto.so_contadores_pelo_no"))
         aviso.setWordWrap(True)
         aviso.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(aviso)
@@ -3707,14 +3627,14 @@ class AbaServico(QWidget):
         linha_topo.addWidget(self.botao)
         # So faz sentido depois de haver texto: sem consulta nao ha o que
         # extrair, e um botao habilitado que nao faz nada e promessa falsa.
-        self.botao_elementos = QPushButton("Elementos para o inventario")
+        self.botao_elementos = QPushButton(T("botao.elementos_para_o_inventario"))
         self.botao_elementos.setEnabled(False)
         self.botao_elementos.setToolTip(
-            "Lista os dominios e IPs que aparecem no texto da resposta.")
+            T("ajuda.lista_os_dominios_e"))
         self.botao_elementos.clicked.connect(self.abre_elementos)
         linha_topo.addWidget(self.botao_elementos)
         linha_topo.addStretch()
-        self.estado = QLabel("nao consultado")
+        self.estado = QLabel(T("texto.nao_consultado"))
         self.estado.setStyleSheet("color: palette(mid);")
         linha_topo.addWidget(self.estado)
         leiaute.addLayout(linha_topo)
@@ -3743,7 +3663,7 @@ class AbaServico(QWidget):
             self.mostra_registro(dict(guardado, do_cache=True))
         else:
             self.saida.setPlaceholderText(
-                f"Clique em Consultar para perguntar ao {self.definicao['nome']}.")
+                T("dica.clique_em_consultar_para").format(self.definicao['nome']))
 
     # -- orcamento
 
@@ -3759,15 +3679,13 @@ class AbaServico(QWidget):
         cor = "#be2828" if apertado else "palette(mid)"
         self.orcamento.setStyleSheet(f"color: {cor};")
         self.orcamento.setText(
-            f"Servico <b>pago</b>. Consumo contado por este painel: "
-            f"<b>{dia}</b> de {teto_dia} hoje, <b>{mes}</b> de {teto_mes} no mes. "
-            "A conta e local e nao enxerga consultas feitas por fora.")
+            T("texto.servico_pago_consumo_contado").format(dia, teto_dia, mes, teto_mes))
 
     def texto_do_botao(self, ja_tem):
         if not self.custa:
-            return "Consultar de novo" if ja_tem else "Consultar"
-        return ("Consultar de novo (gasta 1 credito)" if ja_tem
-                else "Consultar (gasta 1 credito)")
+            return T("botao.consultar_de_novo_curto") if ja_tem else T("botao.consultar_curto")
+        return (T("botao.consultar_de_novo") if ja_tem
+                else T("botao.consultar"))
 
     # -- consulta
 
@@ -3777,19 +3695,16 @@ class AbaServico(QWidget):
             uso = nucleo.UsoServico(self.servico).resumo()
             aviso = ""
             if limite and uso["dia"] >= limite:
-                aviso = (f"\n\nATENCAO: este painel ja contou {uso['dia']} de "
-                         f"{limite} consultas hoje. A API provavelmente vai recusar.")
+                aviso = T("msg.atencao_limite").format(uso["dia"], limite)
             resposta = QMessageBox.question(
                 self, self.definicao["nome"],
-                f"Consultar {self.valor} no {self.definicao['nome']} "
-                f"gasta 1 credito.\n\n"
-                f"Hoje: {uso['dia']} de {limite}.{aviso}",
+                T("msg.consultar_no_gasta_1_credito").format(self.valor, self.definicao['nome'], uso['dia'], limite, aviso),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if resposta != QMessageBox.Yes:
                 return
 
         self.botao.setEnabled(False)
-        self.estado.setText("consultando...")
+        self.estado.setText(T("texto.consultando"))
         tarefa = Tarefa(nucleo.consulta_servico, self.servico, self.especie,
                         self.valor, forcar)
         tarefa.sinais.pronto.connect(self.mostra)
@@ -3819,26 +3734,26 @@ class AbaServico(QWidget):
         quando = registro.get("consultado_em", "")
         consultado = registro.get("respondeu_por") or self.valor
         if registro.get("do_cache"):
-            self.estado.setText(f"do cache, consultado em {quando}")
+            self.estado.setText(T("texto.do_cache_consultado_em").format(quando))
         else:
-            self.estado.setText(f"consultado agora ({quando})")
+            self.estado.setText(T("texto.consultado_agora").format(quando))
 
         linhas = []
         if registro.get("do_cache"):
-            linhas.append(f"# Guardado em {quando}. Nada foi perguntado agora.")
+            linhas.append(T("texto.guardado_em").format(quando))
             if self.custa:
-                linhas.append("# Nenhum credito foi gasto para mostrar isto.")
+                linhas.append(T("texto.nenhum_credito"))
             linhas.append("")
         if consultado != self.valor:
             # RDAP responde pelo dominio registrado, nao pelo host. Sem dizer
             # isso, o operador leria os dados do pai achando que sao do filho.
-            linhas.append(f"# O servico nao conhece {self.valor}.")
-            linhas.append(f"# Abaixo esta a resposta de {consultado}.")
+            linhas.append(T("texto.servico_nao_conhece").format(self.valor))
+            linhas.append(T("texto.abaixo_resposta").format(consultado))
             linhas.append("")
         for rotulo, valor in registro.get("resumo") or []:
             linhas.append(f"{rotulo:<24} {valor}")
         linhas.append("")
-        linhas.append("--- resposta completa ---")
+        linhas.append(T("texto.resposta_completa"))
         linhas.append(json.dumps(registro.get("bruto"), ensure_ascii=False, indent=2))
         self.saida.setPlainText("\n".join(linhas))
 
@@ -3850,11 +3765,11 @@ class AbaServico(QWidget):
         """
         texto = self.saida.toPlainText()
         if not texto.strip():
-            self.avisar("Consulte antes: nao ha texto para extrair.")
+            self.avisar(T("msg.consulte_antes_nao_ha_texto"))
             return
         achados = nucleo.extrai_entidades(texto)
         if not achados["dominios"] and not achados["ips"]:
-            self.avisar("Nao achei dominio nem IP no texto da resposta.")
+            self.avisar(T("msg.nao_achei_dominio_nem_ip"))
             return
         dialogo = DialogoElementos(self.valor, achados, self)
         dialogo.exec()
@@ -3863,7 +3778,7 @@ class AbaServico(QWidget):
     @Slot(str)
     def deu_errado(self, mensagem):
         self.botao.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.saida.setPlainText(mensagem)
         self.atualiza_orcamento()
 
@@ -3884,15 +3799,14 @@ class DialogoElementos(QDialog):
 
     def __init__(self, origem, achados, pai=None):
         super().__init__(pai)
-        self.setWindowTitle(f"Elementos encontrados em {origem}")
+        self.setWindowTitle(T("janela.elementos_encontrados_em").format(origem))
         self.resize(720, 560)
         self.cadastro = nucleo.Cadastro()
         self.mudou = False
         leiaute = QVBoxLayout(self)
         leiaute.addWidget(cabecalho(
-            "Elementos para o inventario",
-            f"Extraidos do texto da consulta de {origem}. Marque o que quiser "
-            "decidir; o resto fica como estava."))
+            T("texto.elementos_para_o_inventario"),
+            T("texto.extraidos_do_texto_da").format(origem)))
 
         self.tabela = QTableWidget(0, 4)
         self.tabela.setHorizontalHeaderLabels(["", "Especie", "Valor", "Situacao"])
@@ -3912,17 +3826,17 @@ class DialogoElementos(QDialog):
         self.preenche()
 
         acoes = QHBoxLayout()
-        marcar = QPushButton("Marcar os novos")
-        marcar.setToolTip("Marca so o que ainda nao tem decisao.")
+        marcar = QPushButton(T("botao.marcar_os_novos"))
+        marcar.setToolTip(T("ajuda.marca_so_o_que"))
         marcar.clicked.connect(self.marca_novos)
         acoes.addWidget(marcar)
         acoes.addStretch()
-        for rotulo, decisao in (("Adicionar marcados", "cadastrado"),
-                                ("Dispensar marcados", "dispensado")):
+        for rotulo, decisao in ((T("botao.adicionar_marcados"), "cadastrado"),
+                                (T("botao.dispensar_marcados"), "dispensado")):
             botao = QPushButton(rotulo)
             botao.clicked.connect(lambda _=False, alvo=decisao: self.decide(alvo))
             acoes.addWidget(botao)
-        fechar = QPushButton("Fechar")
+        fechar = QPushButton(T("botao.fechar"))
         fechar.clicked.connect(self.accept)
         acoes.addWidget(fechar)
         leiaute.addLayout(acoes)
@@ -3959,7 +3873,7 @@ class DialogoElementos(QDialog):
         escolhidos = self.marcados()
         if not escolhidos:
             QMessageBox.information(self, "Elementos",
-                                    "Nada marcado. Marque as linhas que quer decidir.")
+                                    T("msg.nada_marcado_marque_as_linhas"))
             return
         for especie, valor in escolhidos:
             try:
@@ -3985,32 +3899,29 @@ class AbaCadastro(QWidget):
         self.estado.setWordWrap(True)
         leiaute.addWidget(self.estado)
 
-        leiaute.addWidget(QLabel("Nota:"))
+        leiaute.addWidget(QLabel(T("texto.nota")))
         self.nota = QLineEdit()
-        self.nota.setPlaceholderText("o que voce descobriu sobre isto")
+        self.nota.setPlaceholderText(T("dica.o_que_voce_descobriu"))
         leiaute.addWidget(self.nota)
 
         acoes = QHBoxLayout()
-        botao_add = QPushButton("Adicionar ao inventario")
+        botao_add = QPushButton(T("botao.adicionar_ao_inventario"))
         botao_add.clicked.connect(lambda: self.decide("cadastrado"))
         acoes.addWidget(botao_add)
-        botao_disp = QPushButton("Dispensar")
+        botao_disp = QPushButton(T("botao.dispensar"))
         botao_disp.setToolTip(
-            "Grava que voce olhou e decidiu NAO cadastrar. Fica registrado "
-            "para nao voltar a parecer novidade.")
+            T("ajuda.grava_que_voce_olhou"))
         botao_disp.clicked.connect(lambda: self.decide("dispensado"))
         acoes.addWidget(botao_disp)
-        self.botao_esquece = QPushButton("Esquecer")
-        self.botao_esquece.setToolTip("Apaga a decisao: volta a ser algo nao olhado.")
+        self.botao_esquece = QPushButton(T("botao.esquecer"))
+        self.botao_esquece.setToolTip(T("ajuda.apaga_a_decisao_volta"))
         self.botao_esquece.clicked.connect(self.esquece)
         acoes.addWidget(self.botao_esquece)
         acoes.addStretch()
         leiaute.addLayout(acoes)
 
         explicacao = QLabel(
-            "O inventario e GERAL: uma entidade e uma so, atravessando todos "
-            "os nos. Isto nao classifica nada &mdash; dizer se e esperado ou "
-            "ruim e na aba Classificar.")
+            T("texto.o_inventario_e_geral"))
         explicacao.setWordWrap(True)
         explicacao.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(explicacao)
@@ -4028,16 +3939,14 @@ class AbaCadastro(QWidget):
         self.botao_esquece.setEnabled(registro is not None)
         if registro is None:
             self.estado.setText(
-                "<b>Nao cadastrado.</b> Nada entra aqui sozinho -- "
-                "adicionar ou dispensar e decisao sua, e as duas ficam gravadas.")
+                T("texto.nao_cadastrado_nada_entra"))
             self.nota.setText("")
             return
         decisao = registro.get("decisao", "?")
         cor = "#2a7d2a" if decisao == "cadastrado" else "#888"
         nos = ", ".join(registro.get("nos") or []) or "-"
         self.estado.setText(
-            f"<b style='color:{cor}'>{decisao}</b> desde {registro.get('primeiro','')}"
-            f" &nbsp;|&nbsp; visto de: {nos}")
+            T("texto.desde_nbsp_nbsp_visto").format(cor, decisao, registro.get('primeiro',''), nos))
         self.nota.setText(registro.get("nota", ""))
 
     def decide(self, decisao):
@@ -4077,16 +3986,16 @@ class AbaClassificar(QWidget):
         self.tipo.currentTextChanged.connect(self.sugere)
         formulario.addRow("Tipo:", self.tipo)
         self.regra = QLineEdit()
-        formulario.addRow("Regra:", self.regra)
+        formulario.addRow(T("texto.regra"), self.regra)
         self.nota = QLineEdit()
-        self.nota.setPlaceholderText("por que esta sendo classificado")
+        self.nota.setPlaceholderText(T("dica.por_que_esta_sendo"))
         formulario.addRow("Nota:", self.nota)
         leiaute.addLayout(formulario)
         self.sugere()
 
         acoes = QHBoxLayout()
-        for rotulo, lista in (("Para a whitelist", "branca"),
-                              ("Para a blacklist", "negra")):
+        for rotulo, lista in ((T("botao.para_whitelist"), "branca"),
+                              (T("botao.para_blacklist"), "negra")):
             botao = QPushButton(rotulo)
             botao.clicked.connect(lambda _=False, alvo=lista: self.classifica(alvo))
             acoes.addWidget(botao)
@@ -4094,9 +4003,7 @@ class AbaClassificar(QWidget):
         leiaute.addLayout(acoes)
 
         explicacao = QLabel(
-            "Regra vale para <b>todos os nos</b> e age na leitura: ao "
-            "acrescentar, o historico inteiro ja coletado e reclassificado "
-            "junto. Branca esconde; negra destaca e nunca esconde.")
+            T("texto.regra_vale_para_todos"))
         explicacao.setWordWrap(True)
         explicacao.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(explicacao)
@@ -4109,7 +4016,7 @@ class AbaClassificar(QWidget):
     def classifica(self, lista):
         regra = self.regra.text().strip()
         if not regra:
-            self.avisar("A regra esta vazia.")
+            self.avisar(T("msg.a_regra_esta_vazia"))
             return
         try:
             self.listas.adiciona(lista, self.especie, self.tipo.currentText(),
@@ -4120,9 +4027,7 @@ class AbaClassificar(QWidget):
         self.ao_mudar()
         QMessageBox.information(
             self, "Classificar",
-            f"'{regra}' entrou na lista {lista}.\n\n"
-            "A classificacao acontece na leitura: o historico inteiro ja "
-            "coletado foi reclassificado junto.")
+            T("msg.entrou_na_lista_a_classificacao").format(regra, lista))
         self.ao_concluir()
 
 
@@ -4186,28 +4091,28 @@ class JanelaDetalhe(QDialog):
         self.valor = linha["dominio"] if especie == "dominios" else linha["ip"]
         # Nome unico: a especie na frente distingue as duas telas, que sao
         # parecidas por dentro, e a origem diz de onde este item veio.
-        especie_nome = "Dominio" if especie == "dominios" else "IP"
+        especie_nome = T("especie.dominio_singular") if especie == "dominios" else "IP"
         self.setWindowTitle(f"{especie_nome}: {self.valor}")
         self.resize(820, 660)
         leiaute = QVBoxLayout(self)
-        origem = f"visto no no '{no}'" if no else "aberto pelo inventario"
+        origem = T("texto.visto_no_no").format(no) if no else T("texto.aberto_pelo_inventario")
         leiaute.addWidget(cabecalho(f"{especie_nome}: {self.valor}", origem))
 
         self.abas = QTabWidget()
-        self.abas.addTab(AbaColetado(especie, linha), "Coletado")
+        self.abas.addTab(AbaColetado(especie, linha), T("aba.coletado"))
         self.aba_cadastro = AbaCadastro(
             especie, self.valor, no, self.avisar, self.marca_mudanca)
-        self.abas.addTab(self.aba_cadastro, "Cadastro")
+        self.abas.addTab(self.aba_cadastro, T("aba.cadastro"))
         self.aba_classificar = AbaClassificar(
             especie, self.valor, self.avisar, self.marca_mudanca, self.accept)
-        self.abas.addTab(self.aba_classificar, "Classificar")
+        self.abas.addTab(self.aba_classificar, T("aba.classificar"))
         self.aba_servicos = AbaServicos(especie, self.valor, self.avisar)
-        self.abas.addTab(self.aba_servicos, "Servico")
+        self.abas.addTab(self.aba_servicos, T("aba.servico"))
         leiaute.addWidget(self.abas)
 
         rodape = QHBoxLayout()
         rodape.addStretch()
-        fechar = QPushButton("Fechar")
+        fechar = QPushButton(T("botao.fechar"))
         fechar.clicked.connect(self.accept)
         rodape.addWidget(fechar)
         leiaute.addLayout(rodape)
@@ -4244,9 +4149,9 @@ class TabelaInventario(QWidget):
         leiaute = QVBoxLayout(self)
 
         topo = QHBoxLayout()
-        topo.addWidget(QLabel("Filtrar:"))
+        topo.addWidget(QLabel(T("texto.filtrar")))
         self.filtro = QLineEdit()
-        self.filtro.setPlaceholderText("parte do valor ou da nota")
+        self.filtro.setPlaceholderText(T("dica.parte_do_valor_ou"))
         self.filtro.textChanged.connect(self.recarrega)
         topo.addWidget(self.filtro)
         self.contagem = QLabel("")
@@ -4274,14 +4179,14 @@ class TabelaInventario(QWidget):
         leiaute.addWidget(self.tabela)
 
         rodape = QHBoxLayout()
-        rodape.addWidget(QLabel("Nota:"))
+        rodape.addWidget(QLabel(T("texto.nota")))
         self.nota = QLineEdit()
         rodape.addWidget(self.nota, 3)
-        botao_nota = QPushButton("Salvar nota")
+        botao_nota = QPushButton(T("botao.salvar_nota"))
         botao_nota.clicked.connect(self.salva_nota)
         rodape.addWidget(botao_nota)
-        botao_esq = QPushButton("Esquecer")
-        botao_esq.setToolTip("Apaga a decisao: volta a ser algo nao olhado.")
+        botao_esq = QPushButton(T("botao.esquecer"))
+        botao_esq.setToolTip(T("ajuda.apaga_a_decisao_volta"))
         botao_esq.clicked.connect(self.esquece)
         rodape.addWidget(botao_esq)
         leiaute.addLayout(rodape)
@@ -4320,7 +4225,7 @@ class TabelaInventario(QWidget):
                     item.setForeground(QBrush(QColor(140, 140, 140)))
                 self.tabela.setItem(i, coluna, item)
         self.tabela.setSortingEnabled(True)
-        self.contagem.setText(f"{len(itens)} de {len(tudo)}")
+        self.contagem.setText(T("texto.de").format(len(itens), len(tudo)))
 
     def mostra_selecionado(self):
         linha = self.tabela.currentRow()
@@ -4360,11 +4265,11 @@ class TabelaInventario(QWidget):
     def salva_nota(self):
         valor = self.selecionado()
         if not valor:
-            self.avisar("Escolha uma linha.")
+            self.avisar(T("msg.escolha_uma_linha"))
             return
         registro = self.cadastro.obtem(self.especie, valor)
         if not registro:
-            self.avisar(f"{valor} nao esta mais no cadastro.")
+            self.avisar(T("msg.nao_esta_mais_no_cadastro").format(valor))
             return
         try:
             # Mantem a decisao: aqui se edita a nota, nao se muda de ideia.
@@ -4378,7 +4283,7 @@ class TabelaInventario(QWidget):
     def esquece(self):
         valor = self.selecionado()
         if not valor:
-            self.avisar("Escolha uma linha.")
+            self.avisar(T("msg.escolha_uma_linha"))
             return
         try:
             self.cadastro.esquece(self.especie, valor)
@@ -4388,10 +4293,10 @@ class TabelaInventario(QWidget):
         self.recarrega()
 
 
-ROTULO_ESPECIE = {"dominios": "Dominios", "ips": "IPs"}
+ROTULO_ESPECIE = {"dominios": T("especie.dominios"), "ips": T("especie.ips")}
 # Como a especie aparece no meio de uma frase ("Inventario de ..."): 'IPs'
 # nao vira minuscula, e sigla em caixa baixa fica com cara de erro.
-ROTULO_NA_FRASE = {"dominios": "dominios", "ips": "IPs"}
+ROTULO_NA_FRASE = {"dominios": T("especie.dominios.frase"), "ips": T("especie.ips.frase")}
 
 
 class PainelInventario(QWidget):
@@ -4416,15 +4321,11 @@ class PainelInventario(QWidget):
         self.cadastro = nucleo.Cadastro()
         leiaute = QVBoxLayout(self)
         leiaute.addWidget(cabecalho(
-            f"Inventario de {ROTULO_NA_FRASE.get(especie, especie)}",
-            "Geral: uma entidade so, atravessando todos os nos"))
+            T("janela.inventario", especie=ROTULO_NA_FRASE.get(especie, especie)),
+            T("texto.geral_uma_entidade_so")))
 
         explicacao = QLabel(
-            "Entidades que voce ja olhou e decidiu. <b>Cadastrado</b>: entrou "
-            "no inventario. <b>Dispensado</b>: voce olhou e decidiu nao "
-            "adicionar &mdash; fica gravado para nao voltar a parecer novidade."
-            "<br>Isto nao classifica nada: quem diz o que e esperado ou ruim "
-            "sao as listas (menu Listas).")
+            T("texto.entidades_que_voce_ja"))
         explicacao.setWordWrap(True)
         explicacao.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(explicacao)
@@ -4458,26 +4359,17 @@ class PainelTopologiaRede(QWidget):
         self.pool = QThreadPool.globalInstance()
         leiaute = QVBoxLayout(self)
         leiaute.addWidget(cabecalho(
-            "Topologia fisica",
-            "Quem esta nas redes dos nos, agora -- leitura, nao cadastro"))
+            T("menu.topologia"),
+            T("texto.quem_esta_nas_redes")))
 
         explicacao = QLabel(
-            "Cruzamento de quatro leituras de cada no: a tabela ARP/NDP "
-            "(quem falou), o DHCP (quem tem endereco nosso), o Wi-Fi (quem "
-            "esta no radio) e as interfaces. <b>Nao ha varredura</b> &mdash; "
-            "nenhum pacote a mais entra na rede observada."
-            "<br>E uma ARVORE e nao um grafo: o no ve a internet acima, os "
-            "segmentos dele e quem esta em cada um &mdash; aparelho falando "
-            "com aparelho na mesma LAN nao passa por ele, entao traco entre "
-            "dois hosts seria invencao."
-            "<br>Diferente das outras janelas do Inventario, esta fala com os "
-            "nos: ela nao guarda nada e muda a cada Atualizar.")
+            T("texto.cruzamento_de_quatro_leituras"))
         explicacao.setWordWrap(True)
         explicacao.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(explicacao)
 
         linha = QHBoxLayout()
-        self.botao = QPushButton("Atualizar")
+        self.botao = QPushButton(T("botao.atualizar"))
         self.botao.clicked.connect(self.carrega)
         linha.addWidget(self.botao)
         self.resumo = QLabel("")
@@ -4514,7 +4406,7 @@ class PainelTopologiaRede(QWidget):
 
     def carrega(self):
         self.botao.setEnabled(False)
-        self.estado.setText("perguntando aos nos...")
+        self.estado.setText(T("texto.perguntando_aos_nos"))
         # Quatro comandos POR NO, em serie: e a chamada mais cara do painel, e
         # por isso ela nunca sai da thread de UI.
         tarefa = Tarefa(self.painel.topologia_geral)
@@ -4532,9 +4424,9 @@ class PainelTopologiaRede(QWidget):
         resumo = f"{len(linhas)} aparelho(s)"
         if varios:
             juntos = sum(1 for linha in linhas if len(linha["nos"]) > 1)
-            resumo += f"  -  {juntos} em mais de um no"
+            resumo += T("texto.em_mais_de_um_no").format(juntos)
         if falhas:
-            resumo += "  -  sem resposta: " + ", ".join(sorted(falhas))
+            resumo += T("texto.sem_resposta_sufixo") + ", ".join(sorted(falhas))
         self.resumo.setText(resumo)
         for no, erro in sorted(falhas.items()):
             self.avisar(f"{no}: {erro}")
@@ -4542,7 +4434,7 @@ class PainelTopologiaRede(QWidget):
     @Slot(str)
     def _falhou(self, mensagem):
         self.botao.setEnabled(True)
-        self.estado.setText("falhou")
+        self.estado.setText(T("texto.falhou"))
         self.avisar(mensagem)
 
 
@@ -4577,23 +4469,20 @@ class EditorRegras(QWidget):
         tipos = (nucleo.TIPOS_DOMINIO if especie == "dominios" else nucleo.TIPOS_IP)
         self.tipo.addItems(tipos)
         self.tipo.setToolTip(
-            "sufixo: casa o dominio e os subdominios dele, em fronteira de rotulo.\n"
-            "cidr: faixa de enderecos, como 203.0.113.0/24.\n"
-            "exato: so o valor identico.\n"
-            "regex: para o que os outros nao cobrem; lembre de escapar o ponto.")
+            T("ajuda.sufixo_casa_o_dominio"))
         entrada.addWidget(self.tipo)
         self.valor = QLineEdit()
         self.valor.setPlaceholderText(
-            "exemplo.com.br" if especie == "dominios" else "203.0.113.0/24")
+            T("dica.exemplo_com_br") if especie == "dominios" else "203.0.113.0/24")
         self.valor.returnPressed.connect(self.adiciona)
         entrada.addWidget(self.valor, 2)
         self.nota = QLineEdit()
-        self.nota.setPlaceholderText("nota (opcional): por que esta aqui")
+        self.nota.setPlaceholderText(T("dica.nota_opcional_por_que"))
         entrada.addWidget(self.nota, 2)
-        botao_add = QPushButton("Acrescentar")
+        botao_add = QPushButton(T("botao.acrescentar"))
         botao_add.clicked.connect(self.adiciona)
         entrada.addWidget(botao_add)
-        botao_rem = QPushButton("Remover")
+        botao_rem = QPushButton(T("botao.remover"))
         botao_rem.clicked.connect(self.remove)
         entrada.addWidget(botao_rem)
         leiaute.addLayout(entrada)
@@ -4615,7 +4504,7 @@ class EditorRegras(QWidget):
     def adiciona(self):
         valor = self.valor.text().strip()
         if not valor:
-            self.avisar("Informe o valor da regra.")
+            self.avisar(T("msg.informe_o_valor_da_regra"))
             return
         try:
             self.listas.adiciona(self.lista, self.especie,
@@ -4631,7 +4520,7 @@ class EditorRegras(QWidget):
     def remove(self):
         linha = self.tabela.currentRow()
         if linha < 0:
-            self.avisar("Escolha uma regra na tabela.")
+            self.avisar(T("msg.escolha_uma_regra_na_tabela"))
             return
         try:
             self.listas.remove(self.lista, self.especie, linha)
@@ -4651,19 +4540,15 @@ class DialogoListas(QDialog):
 
     def __init__(self, pai=None):
         super().__init__(pai)
-        self.setWindowTitle("Listas do painel: branca e negra")
+        self.setWindowTitle(T("janela.listas"))
         self.resize(760, 520)
         self.listas = nucleo.Listas()
         leiaute = QVBoxLayout(self)
         leiaute.addWidget(cabecalho(
-            "Listas do painel", "Regras que classificam na leitura -- "
-            "valem para todos os nos"))
+            T("texto.listas_do_painel"), T("texto.regras_que_classificam_na")))
 
         explicacao = QLabel(
-            "Tudo continua sendo <b>coletado</b>: as listas so decidem o que "
-            "aparece.<br>"
-            "<b>Branca</b>: conhecido e esperado, some da vista. "
-            "<b>Negra</b>: conhecido e ruim, aparece em vermelho e nunca some.")
+            T("texto.tudo_continua_sendo_coletado"))
         explicacao.setWordWrap(True)
         explicacao.setStyleSheet("color: palette(mid);")
         leiaute.addWidget(explicacao)
@@ -4671,7 +4556,7 @@ class DialogoListas(QDialog):
         abas = QTabWidget()
         for lista, rotulo in (("branca", "Whitelist"), ("negra", "Blacklist")):
             internas = QTabWidget()
-            for especie, nome in (("dominios", "Dominios"), ("ips", "IPs")):
+            for especie, nome in (("dominios", T("especie.dominios")), ("ips", T("especie.ips"))):
                 internas.addTab(
                     EditorRegras(self.listas, lista, especie, self.avisar), nome)
             abas.addTab(internas, rotulo)
@@ -4682,7 +4567,7 @@ class DialogoListas(QDialog):
         leiaute.addWidget(botoes)
 
     def avisar(self, mensagem):
-        QMessageBox.warning(self, "Listas", mensagem)
+        QMessageBox.warning(self, T("aba.listas"), mensagem)
 
 
 # ------------------------------------------------------------------ janela
@@ -4697,7 +4582,7 @@ class Janela(QMainWindow):
         self.abertas = {}
         self.inventarios = {}
         self.topologia_rede = {}
-        self.setWindowTitle(f"GHop - painel ({painel.nome})")
+        self.setWindowTitle(T("janela.ghop_painel").format(painel.nome))
         self.resize(1100, 700)
 
         self.mdi = AreaMDI()
@@ -4707,7 +4592,7 @@ class Janela(QMainWindow):
         lateral = QWidget()
         coluna = QVBoxLayout(lateral)
         coluna.setContentsMargins(8, 8, 8, 8)
-        titulo = QLabel("Nos")
+        titulo = QLabel(T("texto.nos"))
         fonte = titulo.font()
         fonte.setBold(True)
         titulo.setFont(fonte)
@@ -4718,25 +4603,25 @@ class Janela(QMainWindow):
         self.lista.setMinimumWidth(230)
         coluna.addWidget(self.lista)
 
-        dica = QLabel("Duplo clique abre o no.")
+        dica = QLabel(T("texto.duplo_clique_abre_o"))
         dica.setStyleSheet("color: palette(mid);")
         coluna.addWidget(dica)
 
         linha = QHBoxLayout()
-        adicionar = QPushButton("Adicionar")
+        adicionar = QPushButton(T("botao.adicionar"))
         adicionar.clicked.connect(self.adiciona)
-        remover = QPushButton("Remover")
+        remover = QPushButton(T("botao.remover"))
         remover.clicked.connect(self.remove)
         linha.addWidget(adicionar)
         linha.addWidget(remover)
         coluna.addLayout(linha)
 
-        doca = QDockWidget("Nos", self)
+        doca = QDockWidget(T("texto.nos"), self)
         doca.setWidget(lateral)
         doca.setFeatures(QDockWidget.DockWidgetMovable)
         self.addDockWidget(Qt.LeftDockWidgetArea, doca)
 
-        inventario_menu = self.menuBar().addMenu("&Inventario")
+        inventario_menu = self.menuBar().addMenu(T("menu.inventario"))
         for especie, atalho in (("dominios", "Ctrl+D"), ("ips", "Ctrl+I")):
             acao = QAction(ROTULO_ESPECIE[especie], self)
             acao.setShortcut(atalho)
@@ -4746,18 +4631,18 @@ class Janela(QMainWindow):
         # Separada das duas de cima porque e de outra natureza: aquelas leem
         # o disco, esta pergunta aos nos.
         inventario_menu.addSeparator()
-        acao_topologia = QAction("Topologia fisica", self)
+        acao_topologia = QAction(T("menu.topologia"), self)
         acao_topologia.setShortcut("Ctrl+T")
         acao_topologia.triggered.connect(self.abre_topologia)
         inventario_menu.addAction(acao_topologia)
 
-        listas_menu = self.menuBar().addMenu("&Listas")
-        acao_listas = QAction("Editar branca e negra...", self)
+        listas_menu = self.menuBar().addMenu(T("menu.listas"))
+        acao_listas = QAction(T("menu.editar_listas"), self)
         acao_listas.setShortcut("Ctrl+L")
         acao_listas.triggered.connect(self.edita_listas)
         listas_menu.addAction(acao_listas)
 
-        janelas = self.menuBar().addMenu("&Janelas")
+        janelas = self.menuBar().addMenu(T("menu.janelas"))
         for rotulo, acao in (("Lado a lado", self.mdi.tileSubWindows),
                              ("Cascata", self.mdi.cascadeSubWindows),
                              ("Fechar todas", self.mdi.closeAllSubWindows)):
@@ -4807,7 +4692,7 @@ class Janela(QMainWindow):
             self.lista.addItem(item)
         if not nos:
             self.statusBar().showMessage(
-                "Nenhum no cadastrado. Use Adicionar.", 8000)
+                T("msg.nenhum_no_cadastrado"), 8000)
 
     def avisar(self, mensagem):
         self.statusBar().showMessage(mensagem, 10000)
@@ -4852,7 +4737,7 @@ class Janela(QMainWindow):
         sub.setWidget(conteudo)
         sub.setAttribute(Qt.WA_DeleteOnClose)
         sub.setWindowTitle(
-            f"Inventario de {ROTULO_NA_FRASE.get(especie, especie)}")
+            T("janela.inventario", especie=ROTULO_NA_FRASE.get(especie, especie)))
         sub.resize(900, 520)
         self.mdi.addSubWindow(sub)
         self.inventarios[especie] = sub
@@ -4870,7 +4755,7 @@ class Janela(QMainWindow):
         sub = QMdiSubWindow()
         sub.setWidget(conteudo)
         sub.setAttribute(Qt.WA_DeleteOnClose)
-        sub.setWindowTitle("Topologia fisica")
+        sub.setWindowTitle(T("menu.topologia"))
         sub.resize(1000, 520)
         self.mdi.addSubWindow(sub)
         self.topologia_rede["rede"] = sub
@@ -4886,7 +4771,7 @@ class Janela(QMainWindow):
             sub = self.subjanela_viva(self.abertas, no)
             if sub is not None and sub.widget() is not None:
                 sub.widget().carrega()
-        self.statusBar().showMessage("listas atualizadas; nos recarregados", 6000)
+        self.statusBar().showMessage(T("msg.listas_atualizadas"), 6000)
 
     def adiciona(self):
         dialogo = DialogoNo(self)
@@ -4894,29 +4779,27 @@ class Janela(QMainWindow):
             return
         nome, endereco, tipo = dialogo.valores()
         if not nome or not endereco:
-            self.avisar("Informe nome e endereco.")
+            self.avisar(T("msg.informe_nome_e_endereco"))
             return
-        self.statusBar().showMessage(f"conferindo quem atende em {endereco}...")
+        self.statusBar().showMessage(T("msg.conferindo_quem_atende").format(endereco))
         tarefa = Tarefa(self.painel.adiciona_no, nome, endereco, tipo)
         tarefa.sinais.pronto.connect(lambda _: self.cadastrou(nome))
         tarefa.sinais.falhou.connect(self.avisar)
         self.pool.start(tarefa)
 
     def cadastrou(self, nome):
-        self.statusBar().showMessage(f"no '{nome}' cadastrado", 6000)
+        self.statusBar().showMessage(T("msg.no_cadastrado").format(nome), 6000)
         self.recarrega_lista()
 
     def remove(self):
         item = self.lista.currentItem()
         if item is None:
-            self.avisar("Escolha um no na lista.")
+            self.avisar(T("msg.escolha_um_no_na_lista"))
             return
         no = item.data(PAPEL_NO)
         resposta = QMessageBox.question(
             self, "Remover no",
-            f"Remover '{no}' do cadastro?\n\n"
-            "O agente naquela maquina continua no ar; isto so apaga o "
-            "cadastro deste painel.")
+            T("msg.remover_do_cadastro_o_agente").format(no))
         if resposta != QMessageBox.Yes:
             return
         try:
@@ -4931,53 +4814,45 @@ class Janela(QMainWindow):
         self.recarrega_lista()
 
 
-def escolhe_tela(aplicacao):
-    """Em qual monitor a janela nasce. GHOP_TELA e o indice; senao, a primaria.
-
-    Com varios monitores a primaria nem sempre e onde se trabalha, e no Qubes
-    ela pode nem ser a da esquerda. Deixar isto no ambiente evita chumbar a
-    escolha no codigo e permite abrir o painel em cada tela conforme o dia.
-    'GHOP_TELA=lista' so imprime as telas e sai, para descobrir o indice.
-    """
-    telas = aplicacao.screens()
-    pedido = os.environ.get("GHOP_TELA", "").strip()
-
-    if pedido:
-        try:
-            return telas[int(pedido)]
-        except (ValueError, IndexError):
-            print(f"GHOP_TELA={pedido!r} invalido; ha {len(telas)} tela(s). "
-                  "Use GHOP_TELA=lista para ver.", file=sys.stderr)
-    return aplicacao.primaryScreen()
+DIR_RECURSOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos")
+# Tamanhos rendericados do icone.svg. Varios, e nao um so grande, porque quem
+# escolhe e o gerenciador de janelas: ele pega o mais proximo do que precisa
+# (16 na barra de tarefas, 48 no alt-tab) e uma reducao de 256 para 16 feita na
+# hora borra o desenho. Sem isto o painel aparece com o cubo generico do X, que
+# e o que o WM mostra para quem nao declarou icone nenhum.
+TAMANHOS_ICONE = (16, 24, 32, 48, 64, 128, 256)
 
 
-def lista_telas(aplicacao):
-    for indice, tela in enumerate(aplicacao.screens()):
-        geometria = tela.geometry()
-        print(f"[{indice}] {tela.name()}  {geometria.width()}x{geometria.height()}"
-              f" em ({geometria.x()},{geometria.y()})"
-              f"{'  (primaria)' if tela is aplicacao.primaryScreen() else ''}")
+def icone_do_painel():
+    """O icone do aplicativo, montado dos PNG de recursos/. Pode vir vazio."""
+    icone = QIcon()
+    for tamanho in TAMANHOS_ICONE:
+        caminho = os.path.join(DIR_RECURSOS, "icone-%d.png" % tamanho)
+        if os.path.exists(caminho):
+            icone.addFile(caminho, QSize(tamanho, tamanho))
+    if icone.isNull():
+        # Sem PNG, tenta o SVG; sem nada, devolve vazio e o Qt usa o padrao.
+        svg = os.path.join(DIR_RECURSOS, "icone.svg")
+        if os.path.exists(svg):
+            icone = QIcon(svg)
+    return icone
 
 
 def main():
     aplicacao = QApplication(sys.argv)
     aplicacao.setApplicationName("GHop")
+    # Antes de qualquer janela: o icone e propriedade da aplicacao, e janela
+    # criada antes disto nasce com o icone velho.
+    aplicacao.setWindowIcon(icone_do_painel())
     # Antes de qualquer widget existir: paleta trocada depois deixa para tras
     # widget ja criado com a cor antiga. GHOP_TEMA=sistema pula.
     estilo.aplica_tema(aplicacao)
-
-    # Antes de qualquer coisa: listar telas nao pode exigir senha. Perguntar
-    # a chave do painel para responder "quais monitores existem?" e pedir
-    # segredo por nada.
-    if os.environ.get("GHOP_TELA", "").strip().lower() == "lista":
-        lista_telas(aplicacao)
-        return 0
 
     senha = os.environ.get("GHOP_PAINEL_SENHA")
     nome = os.environ.get("GHOP_PAINEL")
     if senha is None:
         senha, ok = QInputDialog.getText(
-            None, "GHop", "Senha da chave do painel:", QLineEdit.Password)
+            None, "GHop", T("texto.senha_chave_painel"), QLineEdit.Password)
         if not ok:
             return 0
     try:
@@ -4992,9 +4867,13 @@ def main():
         # gerenciador de janelas, e o do Qubes nao anuncia
         # _NET_WM_STATE_MAXIMIZED -- o pedido cai no vazio e a janela nasce do
         # tamanho do resize(). Ocupar a area disponivel na mao funciona com WM
-        # cooperativo ou sem ele, e e tambem o que permite escolher em qual
-        # monitor a janela nasce: a geometria ja carrega a posicao da tela.
-        janela.setGeometry(escolhe_tela(aplicacao).availableGeometry())
+        # cooperativo ou sem ele.
+        #
+        # QUAL monitor e' do Qubes, nao nosso: a janela usa a area da tela em
+        # que ela JA esta. Ja houve aqui uma escolha de tela por variavel de
+        # ambiente e, depois, pelo ponteiro; as duas eram uma resposta a mais
+        # do que a pergunta, e a do gerenciador de janelas ja estava certa.
+        janela.setGeometry(janela.screen().availableGeometry())
         janela.showMaximized()
         # A janela e criada aqui dentro, entao alguem tem de segurar a
         # referencia: solta, ela e coletada assim que esta funcao retorna.

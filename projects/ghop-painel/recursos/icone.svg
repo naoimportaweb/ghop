@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Icone do painel do GHop.
+
+     Paleta do proprio painel (estilo.py): fundo #0c0c0c, realce #d92121,
+     texto #e8e8e8. E a leitura klingon do splash: formas escuras sobre disco
+     vermelho.
+
+     O desenho e a ARVORE da tela de topologia: um no embaixo (o painel, com o
+     miolo claro) e tres maquinas observadas acima, ligadas a ele. Nao e
+     enfeite; e a unica coisa que o painel faz, e cabe em 16 px.
+
+     Traco grosso de proposito: a 16 px um traco fino de 256 vira meio pixel e
+     some. Daqui o stroke-width 16, que da cerca de 1 px la.
+
+     (Sem hifen duplo neste comentario: XML nao aceita, e o renderizador do Qt
+     recusa o arquivo inteiro sem dizer direito o porque.) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="0" y="0" width="256" height="256" rx="46" fill="#0c0c0c"/>
+  <circle cx="128" cy="128" r="96" fill="#d92121"/>
+  <circle cx="128" cy="128" r="96" fill="none" stroke="#0c0c0c" stroke-width="10"/>
+
+  <g stroke="#0c0c0c" stroke-width="16" stroke-linecap="round" fill="none">
+    <path d="M128 176 L 62 86"/>
+    <path d="M128 176 L 128 78"/>
+    <path d="M128 176 L 194 86"/>
+  </g>
+
+  <g fill="#0c0c0c">
+    <circle cx="62"  cy="80" r="26"/>
+    <circle cx="128" cy="70" r="26"/>
+    <circle cx="194" cy="80" r="26"/>
+  </g>
+
+  <circle cx="128" cy="180" r="32" fill="#0c0c0c"/>
+  <circle cx="128" cy="180" r="16" fill="#e8e8e8"/>
+</svg>

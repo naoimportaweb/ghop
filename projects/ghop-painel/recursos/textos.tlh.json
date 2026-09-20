@@ -1,0 +1,71 @@
+{
+  "_meta": {
+    "idioma": "tlh",
+    "neutro": false,
+    "sobre": "Satelite em tlhIngan Hol. Chave que faltar aqui cai no textos.json (en).",
+    "aviso": "O Klingon NAO tem vocabulario atestado para rede de computadores. Cada entrada e de uma das tres especies marcadas em _fonte: 'atestado' (palavra de dicionario no sentido dela), 'estendido' (palavra atestada usada por analogia -- decisao de traducao, discutivel) e 'sem traducao' (sigla mantida, que e o que uma localizacao honesta faz com DNS, DHCP, MAC). Quem fala a lingua corrige AQUI, num arquivo, sem tocar em codigo -- que e a razao de existir recurso.",
+    "_fonte": {
+      "atestado": [
+        "visao.maquina.rotulo",
+        "visao.dados.rotulo",
+        "papel.filtro.rotulo",
+        "acao.instalar.rotulo",
+        "acao.desinstalar.rotulo",
+        "acao.iniciar.rotulo",
+        "tipo.lojmIt.rotulo",
+        "menu.topologia"
+      ],
+      "estendido": [
+        "visao.servicos.rotulo",
+        "visao.saida.rotulo",
+        "visao.servico.rotulo",
+        "menu.inventario",
+        "menu.listas",
+        "menu.janelas",
+        "acao.parar.rotulo",
+        "tipo.webserver.rotulo",
+        "especie.dominios",
+        "especie.dominios.frase"
+      ],
+      "sem traducao": [
+        "papel.dhcp.rotulo",
+        "papel.dns.rotulo",
+        "papel.wifi.rotulo",
+        "especie.ips",
+        "especie.ips.frase",
+        "origem.ghop",
+        "papel.nftables.rotulo"
+      ]
+    },
+    "reservadas": "Nome de ferramenta e de protocolo nao se traduz em idioma nenhum, nem aqui: DNS, DHCP, Wi-Fi, nftables, SNI, MAC, IP, TLS, HTTP. Sao palavra reservada do ingles tecnico, nao vocabulario -- klingonizar 'nftables' nomearia outra coisa, e quem for procurar o que e aquilo nao acha."
+  },
+  "textos": {
+    "papel.dhcp.rotulo": "DHCP",
+    "papel.dns.rotulo": "DNS",
+    "papel.wifi.rotulo": "Wi-Fi",
+    "papel.nftables.rotulo": "nftables",
+    "papel.filtro.rotulo": "botwI'",
+    "acao.instalar.rotulo": "yIlan",
+    "acao.iniciar.rotulo": "yIvum",
+    "acao.parar.rotulo": "yImev",
+    "acao.desinstalar.rotulo": "yIteq",
+    "origem.ghop": "ghop",
+    "visao.maquina.rotulo": "jan",
+    "visao.servicos.rotulo": "toy'wI'pu'",
+    "visao.dados.rotulo": "De'",
+    "visao.saida.rotulo": "Hur De'",
+    "visao.servico.rotulo": "toy' De'",
+    "tipo.lojmIt.rotulo": "lojmIt",
+    "tipo.webserver.rotulo": "qachHom",
+    "menu.inventario": "&Hoch",
+    "menu.listas": "&ghomHom",
+    "menu.janelas": "&HaSta",
+    "menu.topologia": "ghom",
+    "especie.dominios": "pongmey",
+    "especie.ips": "IPs",
+    "especie.dominios.frase": "pongmey",
+    "especie.ips.frase": "IPs",
+    "coluna.usa_este_lojmit": "lojmIt lo'",
+    "dica.lojmit": "lojmIt"
+  }
+}
