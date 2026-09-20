@@ -1,0 +1,59 @@
+# gerado por publish.sh — não edite à mão
+#
+# Fontes: o .gitignore e o .csvnignore deste projeto, e
+# `csvn ignorar embutidos`.
+
+# --- do .gitignore deste projeto ---
+__pycache__/
+*.pyc
+
+# --- do .csvnignore deste projeto ---
+# artefatos de build
+# (chave privada, .env e convites já são barrados por padrão — §9.5)
+bin/
+*.o
+
+# --- o que o csvn nunca sobe, nem se mandarem ---
+# Aqui valem como rede: este repositório é público.
+.csvn/
+*.csvnkit
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.ssh/
+.gnupg/
+.env
+.env.*
+*.kdbx
+
+# O template é o contrário de um segredo: a lista de nomes, sem
+# valor nenhum. A negação é explícita porque quem ler '.env*' logo
+# acima vai desconfiar — e porque um dia alguém escreve '.env*'.
+!.env-template
+
+# --- chave, certificado e dado coletado (nunca é código) ---
+# A chave do agente nasce na máquina observada e não sai de lá; a
+# CA roda na máquina do operador, em ~/.ghop/ca.
+*.crt
+*.csr
+keys/
+certs/
+emitidos/
+nos.json
+hostapd.conf
+dhcpd.leases
+REQUESTS_*
+*.db
+*.log
+
+# --- o que esta árvore nunca publica ---
+/CLAUDE.md
+/docs/evolucao.md
+/publish.sh
+.csvnignore
+*.identidade
