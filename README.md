@@ -23,6 +23,7 @@ sudo ./install.sh <papel> [<papel>...]
 | `wifi`    | ponto de acesso na placa sem fio, em bridge com a LAN (opcional, liga e desliga) |
 | `dhcp`    | servidor DHCP da LAN: endereco, roteador e resolvedor (opcional, liga e desliga) |
 | `filtro`  | filtro de camada de aplicacao: decide pelo nome pedido (SNI, Host) o que a LAN alcanca (opcional, liga e desliga) |
+| `balanceador` | escolha de saida com mais de uma placa: lista por placa e, no que sobrar, balanceamento de carga (opcional, liga e desliga) |
 | `nftables`| firewall e NAT: o dono do ruleset (instalado junto com o `lojmIt`) |
 | `painel`  | ferramentas de YubiKey e certificado (maquina do operador) |
 
@@ -47,6 +48,7 @@ projects/ghop-dns/      resolvedor da LAN (dnscrypt-proxy) com lista de negacao
 projects/ghop-wifi/     ponto de acesso (hostapd) em bridge com a LAN
 projects/ghop-dhcp/     servidor DHCP da LAN (isc-dhcp-server)
 projects/ghop-nftables/ firewall e NAT: o dono do ruleset
+projects/ghop-balanceador/    escolha de saida: lista por placa e balanceamento
 projects/ghop-agente/   agente: recebe comandos do painel sobre mTLS
 projects/ghop-painel/   painel minimo: conecta em um agente, autentica e le
 projects/ghop-ca/       autoridade certificadora do mTLS (roda so no painel)
@@ -162,6 +164,58 @@ tira o redirecionamento junto.
 So o que for BLOQUEADO fica registrado, em
 `/var/log/ghop/filtro-bloqueados.log`. O que passou nao e registrado nome a
 nome: disso o coletor ja cuida.
+
+## Escolha de saida e balanceamento de carga
+
+Com mais de uma placa de saida, o papel `balanceador` decide por qual delas cada
+conexao da LAN vai para fora, em **dois estagios**:
+
+```
+ENVIO PARA IP FORA -> lista da placa A -> lista da placa B -> ... -> BALANCEAMENTO
+```
+
+A **primeira lista que casa decide** -- e assim que se prende um destino a uma
+placa sem descrever todo o resto. O que nao esta em lista nenhuma cai no
+balanceamento, que e um de dois algoritmos:
+
+| algoritmo | como escolhe | quando serve |
+|---|---|---|
+| `rodizio` | contador que gira, com **peso** por placa | distribui melhor; o peso acomoda placas de velocidades diferentes |
+| `afinidade` | hash do IP de **origem** | o mesmo cliente sempre pela mesma placa, o que importa para sessao e portal |
+
+```sh
+sudo ./install.sh balanceador                          # instala e liga (pergunta as placas)
+sudo ./projects/ghop-balanceador/balanceador.sh estado
+sudo ./projects/ghop-balanceador/balanceador.sh desligar     # volta a sair toda pela WAN principal
+sudo /usr/local/sbin/ghop-balanceador.py --estado      # placas, pesos, regras, quem esta no ar
+sudo /usr/local/sbin/ghop-balanceador.py --testar 203.0.113.9   # por qual placa sairia, e por que
+```
+
+As regras e os pesos ficam em `/etc/ghop/balanceador/regras.json`. **Ainda nao ha
+comando do painel para escreve-los**: hoje edita-se a mao e roda-se
+`balanceador.sh recarregar` -- o mesmo degrau em que a lista do resolvedor ficou
+antes do comando `lista`.
+
+A decisao e **por conexao, nunca por pacote**: a placa escolhida e gravada na
+propria conexao e restaurada nos pacotes seguintes. Balancear pacote a pacote
+faria o mesmo fluxo sair por dois IPs de origem -- o outro lado descarta, e o
+sintoma seria "a internet esta instavel".
+
+**Placa sem link sai da rotacao sozinha** (o udev reaplica quando ela cai ou
+volta), e a lista dela cai no balanceamento em vez de ir para uma tabela de
+rota sem default. Sem placa nenhuma no ar, o papel nao escreve regra e a
+maquina volta a sair pelo caminho normal.
+
+Tres coisas ficam **de fora**, de proposito: IPv6 (sai pelo caminho normal --
+marcar pacote v6 para tabela de rota v4 e defeito, nao cobertura parcial);
+escolha por **nome** (rota decide por IP; nome quem le e o `ghop-filtro`); e
+trafego nascido no proprio lojmIt (nao passa por `prerouting`, entao a
+resposta do agente ao painel nunca sai por placa sorteada).
+
+**Placa USB** tem o nome preso ao MAC em `/etc/systemd/network/`: nome por
+caminho de barramento muda quando se troca a porta, e regra de rota aponta por
+nome. Ate a placa ser replugada ela aparece fora da rotacao -- que e o certo:
+nao se manda trafego para placa que nao se sabe nomear.
 
 ## Os nos
 

@@ -19,6 +19,7 @@ Uso:
   ./ghop-painel.py listas adicionar <especie> <tipo> <valor> [nota]
   ./ghop-painel.py listas remover <especie> <indice>
   ./ghop-painel.py filtro <no>                    le o filtro de camada de aplicacao
+  ./ghop-painel.py balanceador <no>               placas de saida, pesos e listas
   ./ghop-painel.py vizinhos <no>                  tabela ARP/NDP crua do no
   ./ghop-painel.py conexoes <no>                  mapa de quem falou com quem
   ./ghop-painel.py topologia <no>                 quem esta na rede dele, cruzado
@@ -361,7 +362,7 @@ def executa(argumentos, so_json, sem_testar, tudo=False):
 
     # Leituras de papel: a casca so pede e imprime, e o agente recusa o que
     # nao existir naquela maquina.
-    if verbo in ("papeis", "dhcp", "dns", "wifi", "filtro"):
+    if verbo in ("papeis", "dhcp", "dns", "wifi", "filtro", "balanceador"):
         if len(resto) != 1:
             raise ErroGHop(T("cli.uso").format(f"{verbo} <no>"))
         dados = getattr(abre_painel(), verbo)(resto[0])
@@ -410,6 +411,34 @@ def executa(argumentos, so_json, sem_testar, tudo=False):
             for b in dados.get("bloqueios", []):
                 print(f"{b['ultimo']:<21} {b['cliente']:<16} {b['porta']:>5} "
                       f"{b['total']:>6}  {b['nome']}")
+        elif verbo == "balanceador":
+            print(T("cli.balanceador_estado").format(
+                dados.get("ativo"), dados.get("lan") or "-",
+                dados.get("algoritmo") or "?"))
+            if not dados.get("sorteio"):
+                print(T("cli.balanceador_sem_sorteio"))
+            if dados.get("erro"):
+                print(T("cli.erro").format(dados["erro"]))
+            print()
+            print(f"{T('cli.col.placa'):<10} {T('cli.col.interface'):<18} "
+                  f"{T('cli.col.gateway'):<16} {T('cli.col.peso'):>5} "
+                  f"{T('cli.col.fatia'):>7}  {T('cli.col.estado')}")
+            total = dados.get("slots_total") or 0
+            for placa in dados.get("placas") or []:
+                fatia = f"{placa.get('slots', 0)}/{total}" if total else "-"
+                print(f"{placa.get('nome', ''):<10} "
+                      f"{placa.get('interface', ''):<18} "
+                      f"{(placa.get('gateway') or '-'):<16} "
+                      f"{placa.get('peso', 1):>5} {fatia:>7}  "
+                      f"{T('cli.no_ar') if placa.get('ativa') else T('cli.fora')}")
+            print()
+            print(f"{'#':>3}  {T('cli.col.placa'):<10} {T('cli.col.casa_por'):<8} "
+                  f"{T('cli.col.destino')}")
+            for i, regra in enumerate(dados.get("regras") or [], 1):
+                print(f"{i:>3}  {regra.get('placa', ''):<10} "
+                      f"{regra.get('tipo', ''):<8} {regra.get('valor', '')}")
+            if not dados.get("regras"):
+                print(T("cli.balanceador_sem_regra"))
         elif verbo == "dns":
             print(T("cli.dns_estado").format(
                 dados.get("ativo"), ", ".join(dados.get("escuta") or []) or "-",

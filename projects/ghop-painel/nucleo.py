@@ -55,7 +55,7 @@ FORMATO_NOME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 COMANDOS = ("resumo", "monitorar", "eventos", "interfaces", "rotas", "vizinhos",
             "conexoes", "trafego", "papeis", "dhcp", "dns", "wifi", "nftables",
             "filtro", "sistema", "papel", "acao", "listas", "lista", "firewall",
-            "filtrar", "limpar")
+            "filtrar", "limpar", "balanceador", "rotear")
 
 # Papeis do GHop que rendem uma TELA propria, e o comando que a alimenta. O
 # agente diz quais existem naquela maquina ('papeis'); a casca so desenha o
@@ -99,6 +99,18 @@ PAPEIS = {
     "filtro": {"rotulo": T("papel.filtro.rotulo"), "comando": "filtro",
                "descricao": T("papel.filtro.descricao"),
                "visao": True, "antes": ("saida", "servico")},
+    # Tela cheia como o Filtro e pelo mesmo motivo: sao regras ORDENADAS que
+    # o operador escreve e reordena, mais os pesos, mais quais placas estao
+    # no ar. Aba escondida nao serve para o que se edita.
+    #
+    # O papel NAO se chama 'saida': essa palavra ja e uma VISAO aqui em cima
+    # (a "Analise de saida") e ja tem classe no gui.py. Papel e visao sao dois
+    # namespaces, mas a mesma palavra nos dois seria ambiguidade no unico
+    # lugar em que este projeto nao se permite ter.
+    "balanceador": {"rotulo": T("papel.balanceador.rotulo"),
+                    "comando": "balanceador",
+                    "descricao": T("papel.balanceador.descricao"),
+                    "visao": True, "antes": ("saida", "servico")},
 }
 
 # Os que ESCREVEM no agente; todo o resto de COMANDOS e leitura. Ficam
@@ -106,7 +118,7 @@ PAPEIS = {
 # comando de leitura e barato de aceitar, comando de escrita amplia o que o
 # painel pode causar.
 COMANDOS_ESCREVEM = ("monitorar", "papel", "lista", "firewall", "filtrar",
-                     "limpar")
+                     "limpar", "rotear")
 
 # As acoes que o painel pode pedir sobre um papel, com o aviso que a tela tem
 # de mostrar ANTES de mandar. O texto nao e enfeite: 'parar' e 'desinstalar'
@@ -132,7 +144,8 @@ ACOES_PAPEL = {
 
 # Papeis que o agente aceita gerenciar. 'lojmIt' e 'agente' ficam de fora de
 # proposito: um derruba rota e firewall, o outro corta o proprio canal.
-PAPEIS_GERENCIAVEIS = ("coletor", "dns", "wifi", "dhcp", "nftables", "filtro")
+PAPEIS_GERENCIAVEIS = ("coletor", "dns", "wifi", "dhcp", "nftables", "filtro",
+                       "balanceador")
 
 # Como se diz ao operador de onde veio um servico. Fica aqui, e nao na
 # janela, porque as duas cascas mostram a mesma coluna e nao podem divergir:
@@ -584,6 +597,241 @@ def valida_regra(especie, tipo, valor):
 # RDAP e o whois moderno: JSON estruturado, sobre HTTPS, e serve para dominio
 # e para IP com o mesmo cliente. A porta 43 do whois classico atravessa mal
 # rede restritiva, e falar o protocolo cru exigiria perseguir referral na mao.
+# ------------------------------------------------------------- balanceador
+#
+# As regras do balanceador de saida: que destino sai por qual placa, e com que
+# peso o resto se distribui. Moram no PAINEL, como as do filtro e as listas
+# branca e negra -- o agente e burro, recebe pronto e aplica.
+
+ARQ_ROTAS = os.path.join(os.path.expanduser("~/.ghop"), "rotas.json")
+
+ALGORITMOS = ("rodizio", "afinidade")
+TIPOS_ROTA = ("cidr", "exato", "origem")
+PESO_MAXIMO = 32
+LIMITE_ROTAS = 500
+
+# Nome de PLACA, que e tudo o que o painel conhece de uma saida. O mapa
+# nome -> interface, gateway e fato da MAQUINA e vive no no: interface entra
+# em regra de nft e em linha de comando do 'ip', e aceita-la daqui seria
+# aceitar shell por outro caminho. E a mesma razao de o 'firewall' mandar
+# campos e nunca texto de regra.
+FORMATO_PLACA = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
+
+
+def _ip_de_rota(texto):
+    """IPv4 em quatro octetos. Nada de ipaddress: aceitar '10' como 10.0.0.0
+    transformaria erro de digitacao numa /8 inteira presa a uma placa."""
+    partes = (texto or "").split(".")
+    if len(partes) != 4:
+        return False
+    for parte in partes:
+        if not parte.isdigit() or not 0 <= int(parte) <= 255:
+            return False
+        if len(parte) > 1 and parte[0] == "0":
+            return False
+    return True
+
+
+def valida_destino(tipo, valor):
+    """Normaliza '198.51.100.0/24' ou '198.51.100.7'. Levanta se nao for isso."""
+    if tipo not in TIPOS_ROTA:
+        raise ErroGHop(f"tipo deve ser um de {', '.join(TIPOS_ROTA)}.")
+    valor = (valor or "").strip()
+    if tipo == "exato" or (tipo == "origem" and "/" not in valor):
+        if not _ip_de_rota(valor):
+            raise ErroGHop(f"'{valor}' nao e um IPv4.")
+        return valor
+    endereco, barra, prefixo = valor.partition("/")
+    if not barra or not _ip_de_rota(endereco) or not prefixo.isdigit():
+        raise ErroGHop(f"'{valor}' nao e um CIDR (ex. 198.51.100.0/24). "
+                       "A rota decide por IP: nome de dominio nao serve aqui -- "
+                       "para nome existe o filtro.")
+    if not 0 <= int(prefixo) <= 32:
+        raise ErroGHop(f"prefixo fora de 0..32 em '{valor}'.")
+    return f"{endereco}/{int(prefixo)}"
+
+
+def casa_destino(regra, endereco):
+    """A regra cobre esse IP? Reproduz, no painel, a conta que o kernel faz."""
+    if not _ip_de_rota(endereco):
+        return False
+    valor = regra.get("valor") or ""
+    if regra.get("tipo") == "exato" or "/" not in valor:
+        return valor == endereco
+    rede, _, prefixo = valor.partition("/")
+    if not _ip_de_rota(rede) or not prefixo.isdigit():
+        return False
+    bits = int(prefixo)
+    if bits == 0:
+        return True
+    mascara = (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF
+    return (_numero_ip(endereco) & mascara) == (_numero_ip(rede) & mascara)
+
+
+def _numero_ip(endereco):
+    a, b, c, d = (int(parte) for parte in endereco.split("."))
+    return (a << 24) | (b << 16) | (c << 8) | d
+
+
+class Rotas:
+    """Listas e pesos do balanceador de saida, do painel.
+
+    Dois estagios, e a ORDEM das regras e semantica, como no filtro: a
+    primeira que casa decide, e o que nao casa em lista nenhuma cai no
+    balanceamento. Por isso nao se ordena esta tabela por coluna.
+
+    O que fica aqui e so o que o painel pode saber: nome de placa, peso,
+    destino. Qual interface e qual gateway cada placa tem e fato da maquina,
+    e quem responde isso e o comando de leitura 'balanceador'.
+    """
+
+    def __init__(self, caminho=None):
+        self.caminho = caminho or ARQ_ROTAS
+
+    def tudo(self):
+        """{'algoritmo': str, 'placas': [...], 'regras': [...]} do disco."""
+        vazio = {"algoritmo": ALGORITMOS[0], "placas": [], "regras": []}
+        if not os.path.exists(self.caminho):
+            return vazio
+        try:
+            with open(self.caminho, encoding="utf-8") as arquivo:
+                dados = json.load(arquivo)
+        except (OSError, json.JSONDecodeError) as falha:
+            raise ErroGHop(f"nao consegui ler {self.caminho}: {falha}")
+        algoritmo = dados.get("algoritmo")
+        return {
+            "algoritmo": algoritmo if algoritmo in ALGORITMOS else ALGORITMOS[0],
+            "placas": [placa for placa in (dados.get("placas") or [])
+                       if isinstance(placa, dict) and placa.get("nome")],
+            "regras": [regra for regra in (dados.get("regras") or [])
+                       if isinstance(regra, dict)],
+        }
+
+    def _grava(self, dados):
+        os.makedirs(os.path.dirname(self.caminho), exist_ok=True)
+        temporario = self.caminho + ".novo"
+        try:
+            with open(temporario, "w", encoding="utf-8") as arquivo:
+                json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+                arquivo.write("\n")
+            os.chmod(temporario, 0o600)
+            os.replace(temporario, self.caminho)
+        except OSError as falha:
+            raise ErroGHop(f"nao consegui gravar {self.caminho}: {falha}")
+
+    def define_algoritmo(self, algoritmo):
+        """'rodizio' (contador que gira, com peso) ou 'afinidade' (hash da origem).
+
+        A diferenca nao e de gosto: o rodizio distribui melhor e o peso
+        acomoda placas de velocidades diferentes; a afinidade distribui pior,
+        porque cliente pesado nao se divide, mas mantem o IP publico de um
+        cliente estavel -- que e o que portal preso a endereco exige.
+        """
+        if algoritmo not in ALGORITMOS:
+            raise ErroGHop(f"algoritmo deve ser um de {', '.join(ALGORITMOS)}.")
+        dados = self.tudo()
+        dados["algoritmo"] = algoritmo
+        self._grava(dados)
+        return dados
+
+    def define_peso(self, placa, peso):
+        """O peso de uma placa no balanceamento. Peso e proporcao, nao vazao."""
+        if not FORMATO_PLACA.match(placa or ""):
+            raise ErroGHop(f"'{placa}' nao e um nome de placa valido.")
+        try:
+            peso = int(peso)
+        except (TypeError, ValueError):
+            raise ErroGHop("o peso tem de ser um numero.")
+        if not 1 <= peso <= PESO_MAXIMO:
+            raise ErroGHop(f"o peso vai de 1 a {PESO_MAXIMO}.")
+        dados = self.tudo()
+        for item in dados["placas"]:
+            if item.get("nome") == placa:
+                item["peso"] = peso
+                break
+        else:
+            dados["placas"].append({"nome": placa, "peso": peso})
+        self._grava(dados)
+        return dados
+
+    def esquece_placa(self, placa):
+        """Tira o peso de uma placa. Ela volta ao padrao do no."""
+        dados = self.tudo()
+        dados["placas"] = [item for item in dados["placas"]
+                           if item.get("nome") != placa]
+        self._grava(dados)
+        return dados
+
+    def adiciona(self, placa, tipo, valor, nota="", posicao=None):
+        """Prende um destino a uma placa. A ORDEM importa: a 1a que casa decide.
+
+        'posicao' insere antes daquele indice, que e como se abre excecao
+        dentro de uma faixa larga -- a regra especifica tem de ficar ACIMA da
+        /16 que a contem, senao nao faz nada.
+        """
+        if not FORMATO_PLACA.match(placa or ""):
+            raise ErroGHop(f"'{placa}' nao e um nome de placa valido.")
+        valor = valida_destino(tipo, valor)
+        nota = (nota or "").strip()
+        if len(nota) > 200:
+            raise ErroGHop("a nota tem no maximo 200 caracteres.")
+        dados = self.tudo()
+        if len(dados["regras"]) >= LIMITE_ROTAS:
+            raise ErroGHop(f"o balanceador aceita no maximo {LIMITE_ROTAS} regras. "
+                           "Lista grande e assunto de rota estatica, nao daqui.")
+        regra = {"placa": placa, "tipo": tipo, "valor": valor, "nota": nota}
+        if posicao is None:
+            dados["regras"].append(regra)
+        else:
+            dados["regras"].insert(max(0, min(int(posicao), len(dados["regras"]))), regra)
+        self._grava(dados)
+        return dados
+
+    def remove(self, indice):
+        dados = self.tudo()
+        if not 0 <= indice < len(dados["regras"]):
+            raise ErroGHop("nao existe regra nessa posicao.")
+        removida = dados["regras"].pop(indice)
+        self._grava(dados)
+        return removida
+
+    def move(self, indice, direcao):
+        """Sobe ou desce uma regra. E edicao de SEMANTICA, nao de arrumacao."""
+        dados = self.tudo()
+        destino = indice + direcao
+        if not 0 <= indice < len(dados["regras"]) or not 0 <= destino < len(dados["regras"]):
+            return dados
+        regras = dados["regras"]
+        regras[indice], regras[destino] = regras[destino], regras[indice]
+        self._grava(dados)
+        return dados
+
+    def decide(self, endereco, placas_ativas=None, origem=None):
+        """Por qual placa esse destino sairia, e por que. Local, sem rede.
+
+        Reproduz a ordem do no para o operador conferir uma regra sem esperar
+        alguem tropecar nela. O que cai no balanceamento nao tem resposta
+        unica -- depende do contador do nftables --, e a resposta diz isso.
+        """
+        if not _ip_de_rota(endereco):
+            raise ErroGHop(f"'{endereco}' nao e um IPv4.")
+        dados = self.tudo()
+        for numero, regra in enumerate(dados["regras"], start=1):
+            alvo = origem if regra.get("tipo") == "origem" else endereco
+            if alvo and casa_destino(regra, alvo):
+                placa = regra.get("placa", "")
+                if placas_ativas is not None and placa not in placas_ativas:
+                    return {"placa": None, "motivo": "lista_caida",
+                            "regra": numero, "texto": T("rota.lista_caida").format(
+                                n=numero, placa=placa)}
+                return {"placa": placa, "motivo": "lista", "regra": numero,
+                        "texto": T("rota.por_lista").format(
+                            n=numero, valor=regra.get("valor", ""), placa=placa)}
+        return {"placa": None, "motivo": "balanceamento",
+                "texto": T("rota.por_balanceamento").format(
+                    algoritmo=dados["algoritmo"])}
+
+
 SERVIDOR_RDAP = "https://rdap.org"
 TEMPO_RDAP = 15
 
@@ -1491,6 +1739,7 @@ class Painel:
         # 'Filtro nao e chamavel' dentro de uma thread -- e a tela so nao
         # atualiza. Mesma pedra em que 'listas_dns' ja tropecou.
         self.regras_filtro = Filtro()
+        self.regras_rotas = Rotas()
 
     # ------------------------------------------------------------ cadastro
 
@@ -2014,6 +2263,37 @@ class Painel:
                 resposta = self.executa(nome, "filtrar", {
                     "politica": dados["politica"], "regras": dados["regras"]})
                 aceitos[nome] = resposta.get("total", 0)
+            except ErroGHop as falha:
+                falhas[nome] = str(falha)
+        return aceitos, falhas
+
+    def balanceador(self, no):
+        """Placas de saida de um no, pesos, algoritmo e listas. BLOQUEIA.
+
+        Leitura pura. Quem ESCREVE e 'sincroniza_rotas'. O que esta resposta
+        tem e o painel nao sabe e justamente o que ele nao pode saber: qual
+        interface e qual gateway cada placa tem, e quais estao no ar.
+        """
+        return self.executa(no, "balanceador")
+
+    def sincroniza_rotas(self, no=None):
+        """Leva as listas e os pesos do balanceador aos nos. ESCREVE. BLOQUEIA.
+
+        Molde do 'sincroniza_filtro': estado inteiro, nao delta, e sem 'no'
+        vai a todos os cadastrados. No sem o papel RECUSA, e isso e normal --
+        aparece em falhas, nao derruba a sincronizacao dos outros.
+        """
+        dados = self.regras_rotas.tudo()
+        alvos = [no] if no else sorted(self.nos())
+        aceitos, falhas = {}, {}
+        for nome in alvos:
+            try:
+                resposta = self.executa(nome, "rotear", {
+                    "algoritmo": dados["algoritmo"],
+                    "placas": [{"nome": placa["nome"], "peso": placa.get("peso", 1)}
+                               for placa in dados["placas"]],
+                    "regras": dados["regras"]})
+                aceitos[nome] = resposta
             except ErroGHop as falha:
                 falhas[nome] = str(falha)
         return aceitos, falhas

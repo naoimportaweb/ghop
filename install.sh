@@ -15,6 +15,7 @@
 #   wifi     ponto de acesso Wi-Fi em bridge com a LAN (opcional)
 #   dhcp     servidor DHCP da LAN (opcional)
 #   filtro   filtro de camada de aplicacao: SNI e Host da LAN (opcional)
+#   balanceador  escolha de saida: lista por placa e balanceamento (opcional)
 #   nftables firewall e NAT (instalado junto com o lojmIt)
 #   painel   a maquina do operador: fala com os agentes e guarda a CA
 #
@@ -35,11 +36,11 @@ papeis=()
 for argumento in "$@"; do
 	case "$argumento" in
 	--sim) SEM_PERGUNTA="--sim" ;;
-	lojmIt | agente | dns | wifi | dhcp | filtro | nftables | painel) papeis+=("$argumento") ;;
+	lojmIt | agente | dns | wifi | dhcp | filtro | balanceador | nftables | painel) papeis+=("$argumento") ;;
 	*)
 		echo "Erro: argumento desconhecido '$argumento'." >&2
 		echo "      Uso: sudo $0 <papel> [<papel>...] [--sim]" >&2
-		echo "      Papeis: lojmIt, agente, dns, wifi, dhcp, filtro, nftables, painel" >&2
+		echo "      Papeis: lojmIt, agente, dns, wifi, dhcp, filtro, balanceador, nftables, painel" >&2
 		exit 1
 		;;
 	esac
@@ -47,7 +48,7 @@ done
 
 if [ "${#papeis[@]}" -eq 0 ]; then
 	echo "Uso: sudo $0 <papel> [<papel>...] [--sim]" >&2
-	echo "Papeis: lojmIt, agente, dns, wifi, dhcp, filtro, nftables, painel" >&2
+	echo "Papeis: lojmIt, agente, dns, wifi, dhcp, filtro, balanceador, nftables, painel" >&2
 	exit 1
 fi
 
@@ -116,6 +117,16 @@ fi
 if tem_papel filtro; then
 	echo "########## papel: filtro ##########"
 	"$DIR_SCRIPT/projects/ghop-filtro/filtro.sh" $SEM_PERGUNTA
+	echo
+fi
+
+# A saida vem depois do lojmIt e do nftables: ela le LAN_IF e WAN_IF de
+# /etc/ghop/nftables/interfaces e escreve um fragmento que o firewall aplica.
+# E antes do agente, pelo mesmo motivo do filtro: o agente ja deve achar o
+# papel aqui quando o painel perguntar o que existe nesta maquina.
+if tem_papel balanceador; then
+	echo "########## papel: balanceador ##########"
+	"$DIR_SCRIPT/projects/ghop-balanceador/balanceador.sh" $SEM_PERGUNTA
 	echo
 fi
 

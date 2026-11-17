@@ -141,6 +141,18 @@ def cabecalho(titulo, subtitulo=""):
     return faixa
 
 
+def estica_coluna(widget, coluna):
+    """Quem fica com a sobra da largura e a coluna `coluna`, nao a primeira.
+
+    O ajudante 'tabela' estica a coluna 0 porque na maioria das telas ela e o
+    nome longo. Onde a coluna 0 e um numero -- a ordem de uma regra, por
+    exemplo -- esticar ela empurra para um canto justamente o que se le.
+    """
+    cabeca = widget.horizontalHeader()
+    cabeca.setSectionResizeMode(QHeaderView.ResizeToContents)
+    cabeca.setSectionResizeMode(coluna, QHeaderView.Stretch)
+
+
 def celula(valor, numero=False):
     """Celula de tabela. Numero entra como numero para ordenar direito."""
     item = QTableWidgetItem()
@@ -2251,11 +2263,414 @@ class VisaoFiltro(AbaPapel):
         self._confere_divergencia(dados)
 
 
+
+class DialogoRegraRota(QDialog):
+    """Prende um destino a uma placa. Campos, nunca texto de regra.
+
+    A placa vem de uma LISTA do que o no respondeu: digitar nome de placa a
+    mao criaria regra apontando para placa que nao existe, que e descarte
+    silencioso do outro lado.
+    """
+
+    def __init__(self, pai, placas):
+        super().__init__(pai)
+        self.setWindowTitle(T("titulo.regra_do_balanceador"))
+        forma = QFormLayout(self)
+        self.placa = QComboBox()
+        for nome in placas:
+            self.placa.addItem(nome, nome)
+        if not placas:
+            self.placa.addItem(T("texto.nenhuma_placa_conhecida"), "")
+        forma.addRow(T("campo.sai_pela_placa"), self.placa)
+        self.tipo = QComboBox()
+        self.tipo.addItem(T("opcao.faixa_cidr"), "cidr")
+        self.tipo.addItem(T("opcao.endereco_exato"), "exato")
+        # O unico tipo que olha para DENTRO da LAN: prende uma maquina a uma
+        # placa, em vez de prender um destino.
+        self.tipo.addItem(T("opcao.origem"), "origem")
+        forma.addRow(T("campo.casa_por"), self.tipo)
+        self.valor = QLineEdit()
+        self.valor.setPlaceholderText(T("dica.cidr_exemplo"))
+        forma.addRow(T("campo.destino"), self.valor)
+        self.nota = QLineEdit()
+        forma.addRow(T("campo.nota"), self.nota)
+        aviso = QLabel(T("texto.rota_decide_por_ip"))
+        aviso.setWordWrap(True)
+        aviso.setStyleSheet("color: palette(mid);")
+        forma.addRow(aviso)
+        botoes = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        botoes.accepted.connect(self.accept)
+        botoes.rejected.connect(self.reject)
+        forma.addRow(botoes)
+
+    def regra(self):
+        return {"placa": self.placa.currentData() or "",
+                "tipo": self.tipo.currentData(),
+                "valor": self.valor.text().strip(),
+                "nota": self.nota.text().strip()}
+
+
+class VisaoBalanceador(AbaPapel):
+    """O balanceador de saida: por qual placa cada conexao da LAN sai.
+
+    Duas sub-abas, e a divisao e a mesma do Filtro: 'Regras' e do PAINEL (o
+    que o operador escreveu, no disco dele) e 'Placas' e do NO (o que esta de
+    fato em vigor la, com quem esta no ar). As duas podem DIVERGIR -- regra
+    escrita aqui so vale depois de enviada --, e a tela diz isso em vermelho.
+
+    A tabela de regras NAO se ordena por coluna: a ordem e semantica. A
+    primeira regra que casa decide, e o que nao casa em lista nenhuma cai no
+    balanceamento -- que e o estagio 2, com o peso de cada placa.
+    """
+
+    def monta(self):
+        self.abas = QTabWidget()
+        self._placas_do_no = []
+        self._ativas = None
+
+        # ---- Regras: o lado do painel.
+        aba_regras = QWidget()
+        dentro = QVBoxLayout(aba_regras)
+        dentro.setContentsMargins(0, 6, 0, 0)
+
+        linha = QHBoxLayout()
+        linha.addWidget(QLabel(T("texto.balanceamento_do_resto")))
+        self.algoritmo = QComboBox()
+        self.algoritmo.addItem(T("opcao.rodizio"), "rodizio")
+        self.algoritmo.addItem(T("opcao.afinidade"), "afinidade")
+        self.algoritmo.activated.connect(self._muda_algoritmo)
+        linha.addWidget(self.algoritmo, 1)
+        dentro.addLayout(linha)
+
+        self.regras = tabela([T("coluna.texto"), T("coluna.placa"),
+                              T("coluna.casa_por"), T("coluna.destino"),
+                              T("coluna.nota")], 0)
+        self.regras.setSortingEnabled(False)   # ordem e semantica
+        # O ajudante 'tabela' estica a coluna 0, porque na maioria das telas
+        # ela e o nome longo. Aqui a coluna 0 e o numero da regra: esticar
+        # justamente ela joga destino e nota para um canto espremido.
+        estica_coluna(self.regras, 4)
+        dentro.addWidget(self.regras, 1)
+
+        botoes = QHBoxLayout()
+        for texto, funcao in ((T("botao.acrescentar"), self._acrescenta),
+                              (T("botao.remover"), self._remove),
+                              (T("botao.subir"), lambda: self._move(-1)),
+                              (T("botao.descer"), lambda: self._move(1))):
+            botao = QPushButton(texto)
+            botao.clicked.connect(funcao)
+            botoes.addWidget(botao)
+        botoes.addStretch()
+        self.botao_enviar = QPushButton(T("botao.enviar_ao_no"))
+        self.botao_enviar.clicked.connect(self._envia)
+        botoes.addWidget(self.botao_enviar)
+        dentro.addLayout(botoes)
+
+        teste = QHBoxLayout()
+        teste.addWidget(QLabel(T("texto.testar_um_ip")))
+        self.teste = QLineEdit()
+        self.teste.setPlaceholderText(T("dica.ip_exemplo"))
+        self.teste.textChanged.connect(self._testa)
+        teste.addWidget(self.teste, 1)
+        self.resultado_teste = QLabel("")
+        teste.addWidget(self.resultado_teste, 1)
+        dentro.addLayout(teste)
+
+        self.divergencia = QLabel("")
+        self.divergencia.setWordWrap(True)
+        dentro.addWidget(self.divergencia)
+        self.abas.addTab(aba_regras, T("aba.regras"))
+
+        # ---- Placas: o lado do no. Peso se edita aqui porque e aqui que se
+        # sabe quais placas existem e qual esta no ar.
+        aba_placas = QWidget()
+        dentro = QVBoxLayout(aba_placas)
+        dentro.setContentsMargins(0, 6, 0, 0)
+        self.ficha = tabela_chave_valor(T("texto.balanceador_nesta_maquina"))
+        dentro.addWidget(self.ficha)
+        dentro.addWidget(QLabel(T("texto.placas_de_saida_deste_no")))
+        self.placas = tabela([T("coluna.placa"), T("coluna.interface"),
+                              T("coluna.gateway"), T("coluna.peso"),
+                              T("coluna.fatia"), T("coluna.estado")], 0)
+        self.placas.setSortingEnabled(False)
+        estica_coluna(self.placas, 2)
+        dentro.addWidget(self.placas, 1)
+        pesos = QHBoxLayout()
+        pesos.addWidget(QLabel(T("texto.peso_da_placa_escolhida")))
+        self.peso = QSpinBox()
+        self.peso.setRange(1, nucleo.PESO_MAXIMO)
+        pesos.addWidget(self.peso)
+        botao_peso = QPushButton(T("botao.definir_peso"))
+        botao_peso.clicked.connect(self._define_peso)
+        pesos.addWidget(botao_peso)
+        pesos.addStretch()
+        dentro.addLayout(pesos)
+        self.aviso_placas = QLabel("")
+        self.aviso_placas.setWordWrap(True)
+        dentro.addWidget(self.aviso_placas)
+        self.abas.addTab(aba_placas, T("aba.placas"))
+
+        self.leiaute.addWidget(self.abas)
+        self.mostra_regras()
+
+    # ------------------------------------------------- regras (lado painel)
+
+    def mostra_regras(self):
+        """Le do disco do painel. Nao fala com no nenhum: e instantaneo."""
+        try:
+            dados = self.painel.regras_rotas.tudo()
+        except ErroGHop as falha:
+            self.avisar(str(falha))
+            return
+        indice = self.algoritmo.findData(dados["algoritmo"])
+        if indice >= 0:
+            self.algoritmo.setCurrentIndex(indice)
+        self.regras.setRowCount(len(dados["regras"]))
+        for i, regra in enumerate(dados["regras"]):
+            self.regras.setItem(i, 0, celula(i + 1, numero=True))
+            self.regras.setItem(i, 1, celula(regra.get("placa", "")))
+            self.regras.setItem(i, 2, celula(regra.get("tipo", "")))
+            self.regras.setItem(i, 3, celula(regra.get("valor", "")))
+            self.regras.setItem(i, 4, celula(regra.get("nota", "")))
+            # Regra que manda numa placa que o no diz estar fora nao esta
+            # errada -- ela so nao vale agora, e o trafego dela cai no
+            # balanceamento. Dizer isso e o ponto da cor.
+            if self._ativas is not None and regra.get("placa") not in self._ativas:
+                for coluna in range(self.regras.columnCount()):
+                    item = self.regras.item(i, coluna)
+                    if item is not None:
+                        item.setForeground(QBrush(QColor(190, 60, 60)))
+        self.abas.setTabText(0, T("aba.contagem").format(
+            T("aba.regras"), len(dados["regras"])))
+        self._testa()
+        self._confere_divergencia()
+
+    def _linha_escolhida(self, qual):
+        linhas = {i.row() for i in qual.selectedIndexes()}
+        if len(linhas) != 1:
+            self.avisar(T("msg.escolha_uma_linha"))
+            return None
+        return linhas.pop()
+
+    def _muda_algoritmo(self):
+        try:
+            self.painel.regras_rotas.define_algoritmo(self.algoritmo.currentData())
+        except ErroGHop as falha:
+            self.avisar(str(falha))
+        self.mostra_regras()
+
+    def _acrescenta(self):
+        dialogo = DialogoRegraRota(self, self._placas_do_no)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        regra = dialogo.regra()
+        if not regra["placa"]:
+            self.avisar(T("msg.sem_placa_para_prender"))
+            return
+        linhas = {i.row() for i in self.regras.selectedIndexes()}
+        posicao = min(linhas) if linhas else None
+        try:
+            self.painel.regras_rotas.adiciona(
+                regra["placa"], regra["tipo"], regra["valor"], regra["nota"],
+                posicao=posicao)
+        except ErroGHop as falha:
+            self.avisar(str(falha))
+            return
+        self.mostra_regras()
+
+    def _remove(self):
+        linha = self._linha_escolhida(self.regras)
+        if linha is None:
+            return
+        try:
+            self.painel.regras_rotas.remove(linha)
+        except ErroGHop as falha:
+            self.avisar(str(falha))
+            return
+        self.mostra_regras()
+
+    def _move(self, direcao):
+        linha = self._linha_escolhida(self.regras)
+        if linha is None:
+            return
+        try:
+            self.painel.regras_rotas.move(linha, direcao)
+        except ErroGHop as falha:
+            self.avisar(str(falha))
+            return
+        self.mostra_regras()
+        destino = max(0, min(linha + direcao, self.regras.rowCount() - 1))
+        self.regras.selectRow(destino)
+
+    def _testa(self):
+        endereco = self.teste.text().strip()
+        if not endereco:
+            self.resultado_teste.setText("")
+            return
+        try:
+            resposta = self.painel.regras_rotas.decide(endereco, self._ativas)
+        except ErroGHop as falha:
+            self.resultado_teste.setStyleSheet("color: palette(mid);")
+            self.resultado_teste.setText(str(falha))
+            return
+        cinza = resposta["motivo"] != "lista"
+        self.resultado_teste.setStyleSheet(
+            "color: palette(mid);" if cinza else "color: palette(text);")
+        self.resultado_teste.setText(resposta["texto"])
+
+    def _define_peso(self):
+        linha = self._linha_escolhida(self.placas)
+        if linha is None:
+            return
+        item = self.placas.item(linha, 0)
+        if item is None:
+            return
+        try:
+            self.painel.regras_rotas.define_peso(item.text(), self.peso.value())
+        except ErroGHop as falha:
+            self.avisar(str(falha))
+            return
+        self.mostra_regras()
+        self._confere_divergencia()
+
+    def _envia(self):
+        if QMessageBox.question(
+                self, "GHop",
+                T("msg.as_rotas_deste_painel_passam").format(self.no),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.botao_enviar.setEnabled(False)
+        self.estado.setText(T("texto.enviando"))
+        tarefa = Tarefa(self.painel.sincroniza_rotas, self.no)
+        tarefa.sinais.pronto.connect(self._enviou)
+        tarefa.sinais.falhou.connect(self._falhou_enviar)
+        self.pool.start(tarefa)
+
+    @Slot(object)
+    def _enviou(self, resultado):
+        self.botao_enviar.setEnabled(True)
+        aceitos, falhas = resultado
+        if falhas:
+            self.avisar(f"{self.no}: {'; '.join(falhas.values())}")
+        else:
+            resposta = aceitos.get(self.no) or {}
+            # 'aplicou' e a diferenca entre gravar e valer: o arquivo pode
+            # estar no disco do no e o kernel continuar com o anterior.
+            if resposta.get("aplicou"):
+                self.estado.setText(T("texto.rotas_enviadas").format(
+                    resposta.get("total", 0)))
+            else:
+                self.avisar(T("msg.gravou_mas_nao_aplicou").format(
+                    resposta.get("aviso") or "?"))
+        self.recarrega()
+
+    @Slot(str)
+    def _falhou_enviar(self, mensagem):
+        self.botao_enviar.setEnabled(True)
+        self.estado.setText(T("texto.falhou"))
+        self.avisar(f"{self.no}: {mensagem}")
+
+    def _confere_divergencia(self, do_no=None):
+        """Diz, em vermelho, quando o painel e o no discordam."""
+        if do_no is None:
+            do_no = getattr(self, "_ultimo_do_no", None)
+        if do_no is None:
+            self.divergencia.setText("")
+            return
+        self._ultimo_do_no = do_no
+        try:
+            daqui = self.painel.regras_rotas.tudo()
+        except ErroGHop:
+            return
+        pesos_daqui = {placa["nome"]: placa.get("peso", 1)
+                       for placa in daqui["placas"]}
+        pesos_la = {placa.get("nome"): placa.get("peso", 1)
+                    for placa in do_no.get("placas") or []}
+        iguais = (daqui["algoritmo"] == do_no.get("algoritmo") and
+                  [(r.get("placa"), r.get("tipo"), r.get("valor"))
+                   for r in daqui["regras"]] ==
+                  [(r.get("placa"), r.get("tipo"), r.get("valor"))
+                   for r in do_no.get("regras") or []] and
+                  all(pesos_la.get(nome) == peso
+                      for nome, peso in pesos_daqui.items()))
+        if iguais:
+            self.divergencia.setStyleSheet("color: palette(mid);")
+            self.divergencia.setText(T("texto.em_vigor_em_iguais").format(self.no))
+        else:
+            self.divergencia.setStyleSheet("color: #be3c3c;")
+            self.divergencia.setText(T("texto.estas_rotas_ainda_nao").format(
+                self.no, len(do_no.get("regras") or []),
+                do_no.get("algoritmo") or "?"))
+
+    # ---------------------------------------------------- lado do no
+
+    def preenche(self, dados):
+        placas = dados.get("placas") or []
+        self._placas_do_no = [placa.get("nome", "") for placa in placas]
+        self._ativas = {placa.get("nome") for placa in placas if placa.get("ativa")}
+        total = dados.get("slots_total") or 0
+
+        pares = [
+            (T("ficha.servico"), T("valor.ativo") if dados.get("ativo")
+             else T("valor.parado")),
+            (T("ficha.decide_o_que_entra_por"), dados.get("lan") or "?"),
+            (T("ficha.algoritmo"), dados.get("algoritmo") or "?"),
+            (T("ficha.placas_no_ar"),
+             f"{len(self._ativas)} / {len(placas)}"),
+        ]
+        if not dados.get("sorteio"):
+            # Sem sorteio nao ha balanceamento: ou ha uma placa so no ar, ou
+            # nenhuma. Dizer isso evita o operador ler peso e supor divisao.
+            pares.append((T("ficha.sorteio"), T("valor.sem_sorteio")))
+        if dados.get("descartadas"):
+            pares.append((T("ficha.descartadas"), str(dados["descartadas"])))
+        if dados.get("regras_quebradas"):
+            pares.append((T("ficha.regras"), T("valor.arquivo_quebrado")))
+        if dados.get("erro"):
+            pares.append((T("ficha.erro"), dados["erro"]))
+        preenche_ficha(self.ficha, pares)
+
+        self.placas.setRowCount(len(placas))
+        for i, placa in enumerate(placas):
+            fatia = placa.get("slots") or 0
+            self.placas.setItem(i, 0, celula(placa.get("nome", "")))
+            self.placas.setItem(i, 1, celula(placa.get("interface", "")))
+            gateway = placa.get("gateway") or T("valor.sem_gateway")
+            if placa.get("gateway_automatico") and placa.get("gateway"):
+                gateway = T("valor.gateway_aprendido").format(placa["gateway"])
+            self.placas.setItem(i, 2, celula(gateway))
+            self.placas.setItem(i, 3, celula(placa.get("peso", 1), numero=True))
+            self.placas.setItem(i, 4, celula(
+                f"{fatia}/{total}" if total else "-"))
+            self.placas.setItem(i, 5, celula(
+                T("valor.no_ar") if placa.get("ativa") else T("valor.fora")))
+            if not placa.get("ativa"):
+                for coluna in range(self.placas.columnCount()):
+                    item = self.placas.item(i, coluna)
+                    if item is not None:
+                        item.setForeground(QBrush(QColor(190, 60, 60)))
+
+        fora = [placa.get("nome") for placa in placas if not placa.get("ativa")]
+        if fora:
+            self.aviso_placas.setStyleSheet("color: #be3c3c;")
+            self.aviso_placas.setText(T("texto.placa_fora_da_rotacao").format(
+                ", ".join(fora)))
+        else:
+            self.aviso_placas.setStyleSheet("color: palette(mid);")
+            self.aviso_placas.setText(T("texto.todas_as_placas_no_ar"))
+
+        self.abas.setTabText(1, T("aba.contagem").format(
+            T("aba.placas"), len(placas)))
+        self.mostra_regras()
+        self._confere_divergencia(dados)
+
+
 ABAS_DE_PAPEL = {"wifi": AbaWifi}
 
 # Papeis que rendem uma VISAO inteira, no mesmo nivel de 'Dados'.
 VISOES_DE_PAPEL = {"nftables": VisaoRoteamento, "dns": VisaoDNS,
-                   "dhcp": VisaoDHCP, "filtro": VisaoFiltro}
+                   "dhcp": VisaoDHCP, "filtro": VisaoFiltro,
+                   "balanceador": VisaoBalanceador}
 
 
 def tamanho_legivel(bytes_):

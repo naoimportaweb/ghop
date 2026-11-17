@@ -16,6 +16,7 @@
 #   wifi     ponto de acesso na placa sem fio, em bridge com a LAN
 #   dhcp     servidor DHCP da LAN: endereco, roteador e resolvedor
 #   nftables firewall e NAT: o dono do ruleset desta maquina
+#   balanceador  escolha de saida: lista por placa e balanceamento de carga
 #   painel   a sua maquina: fala com os agentes e guarda a CA
 #
 # Um papel nao exclui o outro: um lojmIt observado e 'lojmIt agente'.
@@ -64,6 +65,16 @@ PACOTES_FILTRO=(
 	nftables # o redirecionamento e escrito em /etc/ghop/nft.d
 )
 
+# Escolha de saida: por qual placa cada conexao da LAN vai para fora. Papel
+# opcional, liga e desliga. O gerador e Python 3 puro da biblioteca padrao; o
+# iproute2 entra porque sao as tabelas de rota e as regras de politica que
+# fazem a marca do nftables virar caminho, e o nftables porque o fragmento que
+# marca as conexoes e escrito em /etc/ghop/nft.d.
+PACOTES_BALANCEADOR=(
+	iproute2 # 'ip rule' e 'ip route table': a marca vira caminho
+	nftables # a marcacao e escrita em /etc/ghop/nft.d
+)
+
 # Ponto de acesso Wi-Fi em bridge com a LAN. Papel opcional, liga e desliga.
 PACOTES_WIFI=(
 	hostapd      # o ponto de acesso
@@ -96,7 +107,7 @@ DIR_DADOS=/var/ghop
 
 if [ "$#" -eq 0 ]; then
 	echo "Uso: sudo $0 <papel> [<papel>...]" >&2
-	echo "Papeis: lojmIt, agente, dns, wifi, dhcp, nftables, painel" >&2
+	echo "Papeis: lojmIt, agente, dns, wifi, dhcp, filtro, balanceador, nftables, painel" >&2
 	exit 1
 fi
 
@@ -125,11 +136,12 @@ for papel in "$@"; do
 	wifi) pacotes+=("${PACOTES_WIFI[@]}") ;;
 	dhcp) pacotes+=("${PACOTES_DHCP[@]}") ;;
 	filtro) pacotes+=("${PACOTES_FILTRO[@]}") ;;
+	balanceador) pacotes+=("${PACOTES_BALANCEADOR[@]}") ;;
 	nftables) pacotes+=("${PACOTES_NFTABLES[@]}") ;;
 	painel) pacotes+=("${PACOTES_PAINEL[@]}") ;;
 	*)
 		echo "Erro: papel desconhecido '$papel'." >&2
-		echo "      Papeis validos: lojmIt, agente, dns, wifi, dhcp, filtro, nftables, painel" >&2
+		echo "      Papeis validos: lojmIt, agente, dns, wifi, dhcp, filtro, balanceador, nftables, painel" >&2
 		exit 1
 		;;
 	esac

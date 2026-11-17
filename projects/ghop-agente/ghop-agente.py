@@ -6,14 +6,15 @@ enumerados em COMANDOS, e nada fora dele: nao ha comando generico de execucao,
 nao ha eval, nao ha shell. No dia em que houver, o GHop deixa de ser
 observador e vira backdoor com TLS.
 
-Seis comandos MUDAM a maquina: 'monitorar', que grava a lista de IPs a
+Sete comandos MUDAM a maquina: 'monitorar', que grava a lista de IPs a
 observar de perto; 'papel', que instala, inicia, para ou desinstala um papel
 do GHop -- e so os que estao em GERENCIAVEIS, rodando o script que a tabela
 diz; 'firewall', que cria e apaga tabela, cadeia e regra no nftables a
 partir de CAMPOS (nunca texto de regra); 'lista', que mexe nas listas do
 resolvedor (cria com texto colado, acrescenta ou tira uma regra, liga,
 desliga, apaga); 'filtrar', que recebe as regras do filtro de nome inteiras,
-estado e nao delta; e 'limpar', o unico que APAGA dado ja coletado -- uma
+estado e nao delta; 'rotear', que recebe as listas e os pesos do balanceador de
+saida, tambem estado inteiro; e 'limpar', o unico que APAGA dado ja coletado -- uma
 especie e um dia por vez, sem tocar em 'eventos'. Os demais leem:
 
   resumo      contadores que o ghop-requests juntou
@@ -31,6 +32,7 @@ especie e um dia por vez, sem tocar em 'eventos'. Os demais leem:
   wifi        radio, rede e quem esta associado, idem
   nftables    o firewall em vigor, com os contadores de cada regra
   filtro      as regras do filtro de nome e o que elas negaram, idem
+  balanceador placas de saida, pesos, algoritmo e as listas em vigor, idem
   acao        como esta a ultima acao pedida por 'papel'
 
 As leituras de papel (dhcp, dns, wifi, nftables, filtro) so respondem onde
@@ -1015,6 +1017,9 @@ PAPEIS = {
                  "marca": "/etc/ghop/nftables", "comando": "nftables"},
     "filtro": {"rotulo": "Filtro", "unidade": "ghop-filtro.service",
                "marca": "/etc/ghop/filtro", "comando": "filtro"},
+    "balanceador": {"rotulo": "Balanceador",
+                    "unidade": "ghop-balanceador.service",
+                    "marca": "/etc/ghop/balanceador", "comando": "balanceador"},
 }
 
 
@@ -2547,6 +2552,7 @@ GERENCIAVEIS = {
     "wifi": "projects/ghop-wifi/wifi.sh",
     "dhcp": "projects/ghop-dhcp/dhcp.sh",
     "filtro": "projects/ghop-filtro/filtro.sh",
+    "balanceador": "projects/ghop-balanceador/balanceador.sh",
 }
 
 # GERENCIAVEIS ⊆ PAPEIS: comando_papel le PAPEIS[papel] para decidir a trava
@@ -2697,6 +2703,209 @@ def comando_acao(argumentos):
 
 # O conjunto fechado. Acrescentar aqui e uma decisao de arquitetura, nao um
 # detalhe: cada comando novo amplia o que o painel pode mandar fazer.
+
+# ----------------------------------------------------- papel: balanceador
+
+DIR_GHOP_BALANCEADOR = "/etc/ghop/balanceador"
+ARQ_REGRAS_BALANCEADOR = os.path.join(DIR_GHOP_BALANCEADOR, "regras.json")
+# O gerador e NOSSO programa, em caminho fixo, chamado sem um argumento que
+# venha do painel. Ler o estado por ele, e nao reimplementando a leitura
+# aqui, e o que impede as duas pontas de divergirem sobre o que e "placa
+# ativa" -- a conta de carrier e gateway mora num lugar so.
+ARQ_GERADOR_BALANCEADOR = "/usr/local/sbin/ghop-balanceador.py"
+UNIDADE_BALANCEADOR = "ghop-balanceador.service"
+UNIDADE_FIREWALL = "ghop-nftables.service"
+
+ALGORITMOS_BALANCEADOR = ("rodizio", "afinidade")
+# "origem" casa quem PEDIU (ip saddr), e e como se prende uma maquina a
+# uma placa. Os outros dois casam para onde vai.
+TIPOS_REGRA_BALANCEADOR = ("cidr", "exato", "origem")
+LIMITE_REGRAS_BALANCEADOR = 500
+PESO_MAXIMO_BALANCEADOR = 32
+# Nome de PLACA, que e tudo o que o painel conhece de uma saida. Interface e
+# gateway sao fato da maquina e vivem em /etc/ghop/balanceador/placas: aceita-los
+# do painel seria aceitar shell por outro caminho, porque interface entra em
+# regra de nft e em linha de comando do 'ip'.
+FORMATO_PLACA = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
+
+
+def comando_balanceador(argumentos):
+    """Placas de saida, pesos, algoritmo e as listas em vigor.
+
+    Quem responde de verdade e o gerador ('--estado'), porque e ele que sabe
+    o que conta como placa ativa: carrier de pe E gateway conhecido. Duplicar
+    essa conta aqui daria duas respostas diferentes para a mesma pergunta no
+    dia em que uma das duas mudasse.
+    """
+    if argumentos:
+        raise Recusado("balanceador nao aceita argumentos")
+    _exige_papel("balanceador")
+
+    ativo, habilitado = _estado_unidade(UNIDADE_BALANCEADOR)
+    estado = {}
+    erro = ""
+    try:
+        resultado = subprocess.run([ARQ_GERADOR_BALANCEADOR, "--estado"],
+                                   capture_output=True, text=True, timeout=10)
+        if resultado.returncode == 0:
+            estado = json.loads(resultado.stdout)
+        else:
+            erro = resultado.stderr.strip()[:500]
+    except (OSError, ValueError, subprocess.SubprocessError) as falha:
+        erro = str(falha)[:500]
+
+    return {
+        "ativo": ativo,
+        "habilitado": habilitado,
+        "algoritmo": estado.get("algoritmo", ""),
+        "lan": estado.get("lan", ""),
+        "sorteio": estado.get("sorteio", False),
+        "slots_total": estado.get("slots_total", 0),
+        "placas": estado.get("placas", []),
+        "regras": estado.get("regras", []),
+        "descartadas": estado.get("descartadas", 0),
+        "regras_quebradas": estado.get("regras_quebradas", False),
+        "erro": erro,
+    }
+
+
+def comando_rotear(argumentos):
+    """Grava as listas, os pesos e o algoritmo do balanceador. ESCREVE.
+
+    Estado inteiro, nao delta -- molde do 'filtrar', e pelo mesmo motivo: nao
+    ha outra fonte de regra nesta maquina, entao mandar tudo nao apaga o que
+    veio de outro lugar, e painel que perdeu uma mensagem nao deixa destino
+    preso a uma placa para sempre.
+
+    CAMPOS, nunca texto de regra nem nome de interface: placa (pelo NOME),
+    tipo, valor e nota. O que sai daqui e DADO em JSON; quem o transforma em
+    regra de nft e o gerador, que confere tudo outra vez.
+
+    Reaplicar e preciso, ao contrario do filtro: o que vale no kernel e o
+    fragmento gerado, nao o arquivo. Conexao em curso nao se perde nisso --
+    cada uma guarda a placa escolhida na propria marca de conntrack.
+    """
+    algoritmo = argumentos.get("algoritmo", "rodizio")
+    placas = argumentos.get("placas")
+    regras = argumentos.get("regras")
+    if sobra := set(argumentos) - {"algoritmo", "placas", "regras"}:
+        raise Recusado(f"argumento desconhecido: {sorted(sobra)}")
+    if not os.path.isdir(DIR_GHOP_BALANCEADOR):
+        raise Recusado("o papel balanceador nao esta instalado nesta maquina")
+    if algoritmo not in ALGORITMOS_BALANCEADOR:
+        raise Recusado(f"algoritmo deve ser um de {ALGORITMOS_BALANCEADOR}")
+    if not isinstance(placas, list) or not isinstance(regras, list):
+        raise Recusado("placas e regras devem ser listas")
+    if len(regras) > LIMITE_REGRAS_BALANCEADOR:
+        raise Recusado(f"no maximo {LIMITE_REGRAS_BALANCEADOR} regras")
+
+    pesos = []
+    for bruta in placas:
+        if not isinstance(bruta, dict):
+            raise Recusado("cada placa deve ser um objeto")
+        if sobra := set(bruta) - {"nome", "peso"}:
+            raise Recusado(f"campo desconhecido em placa: {sorted(sobra)}")
+        nome = bruta.get("nome")
+        if not isinstance(nome, str) or not FORMATO_PLACA.match(nome):
+            raise Recusado(f"nome de placa invalido: {nome!r}")
+        try:
+            peso = int(bruta.get("peso", 1))
+        except (TypeError, ValueError):
+            raise Recusado(f"peso de '{nome}' nao e numero")
+        if not 1 <= peso <= PESO_MAXIMO_BALANCEADOR:
+            raise Recusado(f"peso de '{nome}' fora de 1..{PESO_MAXIMO_BALANCEADOR}")
+        pesos.append({"nome": nome, "peso": peso})
+
+    limpas = []
+    for bruta in regras:
+        if not isinstance(bruta, dict):
+            raise Recusado("cada regra deve ser um objeto")
+        if sobra := set(bruta) - {"placa", "tipo", "valor", "nota"}:
+            raise Recusado(f"campo desconhecido em regra: {sorted(sobra)}")
+        placa, tipo = bruta.get("placa"), bruta.get("tipo", "cidr")
+        valor, nota = bruta.get("valor"), bruta.get("nota") or ""
+        if not isinstance(placa, str) or not FORMATO_PLACA.match(placa):
+            raise Recusado(f"nome de placa invalido em regra: {placa!r}")
+        if tipo not in TIPOS_REGRA_BALANCEADOR:
+            raise Recusado(f"tipo deve ser um de {TIPOS_REGRA_BALANCEADOR}")
+        if not isinstance(valor, str) or not isinstance(nota, str):
+            raise Recusado("valor e nota devem ser texto")
+        if len(nota) > 200:
+            raise Recusado("nota longa demais (200 caracteres)")
+        valor = _destino_balanceador(tipo, valor.strip())
+        limpas.append({"placa": placa, "tipo": tipo, "valor": valor,
+                       "nota": nota})
+
+    dado = {
+        "versao": 1,
+        "algoritmo": algoritmo,
+        "atualizado": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "placas": pesos,
+        "regras": limpas,
+    }
+    try:
+        temporario = ARQ_REGRAS_BALANCEADOR + ".novo"
+        with open(temporario, "w", encoding="utf-8") as arquivo:
+            json.dump(dado, arquivo, indent=2, ensure_ascii=False)
+            arquivo.write("\n")
+        os.chmod(temporario, 0o644)
+        os.replace(temporario, ARQ_REGRAS_BALANCEADOR)
+    except OSError as falha:
+        raise Recusado(f"nao consegui gravar as regras: {falha}")
+
+    # Caminhos FIXOS, nada do painel aqui. Primeiro o gerador reescreve o
+    # fragmento e as rotas, depois o firewall o aplica -- nesta ordem, senao
+    # o firewall aplicaria o fragmento velho.
+    aplicou, aviso = True, ""
+    for comando in ([ARQ_GERADOR_BALANCEADOR, "--aplicar"],
+                    ["systemctl", "restart", UNIDADE_FIREWALL]):
+        try:
+            resultado = subprocess.run(comando, capture_output=True,
+                                       text=True, timeout=60)
+            if resultado.returncode != 0:
+                aplicou = False
+                aviso = resultado.stderr.strip()[:500]
+                break
+        except (OSError, subprocess.SubprocessError) as falha:
+            aplicou, aviso = False, str(falha)[:500]
+            break
+
+    registra(f"balanceador: {len(limpas)} regra(s), {len(pesos)} peso(s), "
+             f"algoritmo {algoritmo}, aplicou={aplicou}")
+    return {"total": len(limpas), "placas": len(pesos),
+            "algoritmo": algoritmo, "aplicou": aplicou, "aviso": aviso}
+
+
+def _destino_balanceador(tipo, valor):
+    """'198.51.100.0/24' ou '198.51.100.7'. Recusa o que nao for isso.
+
+    Nao se usa ipaddress de proposito, como no gerador: aceitar '10' como
+    10.0.0.0 transformaria erro de digitacao em regra larga, que aqui quer
+    dizer uma /8 inteira presa a uma placa.
+    """
+    def octetos(texto):
+        partes = texto.split(".")
+        if len(partes) != 4:
+            return False
+        for parte in partes:
+            if not parte.isdigit() or not 0 <= int(parte) <= 255:
+                return False
+            if len(parte) > 1 and parte[0] == "0":
+                return False
+        return True
+
+    if tipo == "exato" or (tipo == "origem" and "/" not in valor):
+        if not octetos(valor):
+            raise Recusado(f"valor invalido: {valor!r} (IPv4)")
+        return valor
+    endereco, barra, prefixo = valor.partition("/")
+    if not barra or not octetos(endereco) or not prefixo.isdigit():
+        raise Recusado(f"valor invalido: {valor!r} (CIDR, ex. 198.51.100.0/24)")
+    if not 0 <= int(prefixo) <= 32:
+        raise Recusado(f"prefixo fora de 0..32: {valor!r}")
+    return f"{endereco}/{int(prefixo)}"
+
+
 COMANDOS = {
     "resumo": comando_resumo,
     "monitorar": comando_monitorar,
@@ -2713,6 +2922,8 @@ COMANDOS = {
     "nftables": comando_nftables,
     "filtro": comando_filtro,
     "filtrar": comando_filtrar,
+    "balanceador": comando_balanceador,
+    "rotear": comando_rotear,
     "sistema": comando_sistema,
     "firewall": comando_firewall,
     "papel": comando_papel,

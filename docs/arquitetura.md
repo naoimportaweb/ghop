@@ -22,6 +22,7 @@ e nenhuma maquina observada guarda segredo que valha para as outras.
 | filtro (`ghop-filtro`) | lojmIt, opcional | decide pelo NOME que a conexao pede (SNI, Host) o que a LAN alcanca |
 | dhcp (`ghop-dhcp`) | lojmIt, opcional | entrega endereco, roteador e resolvedor a LAN |
 | nftables (`ghop-nftables`) | lojmIt | o DONO do firewall: filtro, NAT e os fragmentos dos outros papeis |
+| balanceador (`ghop-balanceador`) | lojmIt, opcional | com mais de uma placa de saida, decide por qual cada conexao sai: lista por placa e, no resto, balanceamento |
 | agente | toda maquina observada | recebe comandos do painel e age (ainda nao existe) |
 | painel | computador do operador | controla tudo; guarda as listas e a CA (ainda nao existe) |
 
@@ -485,6 +486,138 @@ Um elemento pode acumular papeis: este lojmIt e `lojmIt` + `agente`.
   DNS, vale igual aqui. Quer-se VER quem fala com um dominio ruim antes de
   cega-lo.
 
+### Balanceador de saida (`ghop-balanceador`)
+
+- **O papel NAO se chama `saida`, e o motivo e namespace.** `saida` ja e uma
+  VISAO (`nucleo.VISOES`, a "Analise de saida") e ja tem classe no `gui.py`.
+  Papel e visao sao dois namespaces, mas a mesma palavra nos dois seria o tipo
+  de ambiguidade que este projeto nao se permite justamente em nome -- entao o
+  papel se chama como o dono o chamou: `balanceador`.
+- **Dois estagios, e a ordem e a especificacao**: `ENVIO PARA IP FORA -> lista
+  da placa A -> lista da placa B -> ... -> balanceamento`. A primeira lista
+  que casa decide, como no `ghop-filtro` e pelo mesmo motivo -- e assim que se
+  prende um destino a uma placa sem ter de descrever todo o resto. O que nao
+  casa em lista nenhuma cai no balanceamento. Sao os dois algoritmos pedidos:
+  afinidade explicita por lista, e distribuicao no que sobra.
+- **A decisao e POR CONEXAO, nunca por pacote.** Pacote a pacote, o mesmo
+  fluxo sai por duas placas, com dois IPs de origem: o outro lado descarta e o
+  TLS reseta. O sintoma seria "a internet esta instavel", nao "o balanceador
+  esta errado" -- defeito que se paga caro para diagnosticar. Por isso a marca
+  escolhida e gravada na conexao (`ct mark`) e **restaurada antes de qualquer
+  decisao**: a primeira regra da cadeia devolve a escolha ja tomada e encerra a
+  travessia. Fluxo em curso nunca e redecidido, nem quando a lista muda.
+- **Dois algoritmos, e a diferenca nao e de gosto.** `rodizio` (`numgen inc`)
+  distribui melhor e aceita **peso**, que e o que acomoda placas de velocidades
+  diferentes -- uma USB 2.0 nao segura o que uma gigabit de barramento segura.
+  `afinidade` (`jhash` do IP de origem) distribui pior, porque cliente pesado
+  nao se divide, mas mantem o IP publico de um cliente estavel enquanto a placa
+  estiver de pe: e o que portal que prende login a endereco exige. O peso vira
+  **quantidade de slots** num mapa do nftables, que e o unico jeito de pesar
+  sem o kernel precisar saber o que e peso.
+- **So o que ENTRA pela LAN e vai para endereco publico.** Trafego nascido no
+  lojmIt nao passa por `prerouting`, entao a resposta do agente ao painel sai
+  pelo caminho normal e nao por placa sorteada -- se saisse, voltaria por outra
+  placa e o canal do painel morreria. Conexao de cliente para cliente, ou para
+  o proprio lojmIt, tambem fica fora: rede interna nao e "para fora". Mesma
+  regra do coletor e do filtro, e a mesma lista de faixas privadas, de
+  proposito: "ir para fora" tem de querer dizer a mesma coisa nos tres.
+- **IPv6 nao e balanceado, e isso esta escrito na tela.** A cadeia devolve o
+  que nao for IPv4 antes de decidir. Marcar pacote v6 para uma tabela de rota
+  v4 nao e cobertura parcial, e defeito: o buraco a vista e melhor que a
+  cobertura inventada -- a mesma conta do "sem nome legivel" do filtro.
+- **Nao escolhe por nome.** Rota decide por IP, e o nome pedido so existe
+  dentro da conexao -- quem o le e o `ghop-filtro`. Lista aqui e IP ou CIDR.
+  Um dia o filtro podera escolher a placa ao emendar os dois lados; sao
+  camadas diferentes, e misturar as duas numa lista so faria o operador
+  escrever regra que nao vale onde ele pensa que vale.
+- **O comando do painel ainda nao existe.** Hoje se edita
+  `/etc/ghop/balanceador/regras.json` a mao e se roda `balanceador.sh recarregar` -- o
+  mesmo degrau em que a lista do resolvedor ficou antes do comando `lista`.
+  Quando entrar, e **um de leitura** (`saida`: placas, pesos, quem esta no ar,
+  regras) e **um de escrita** (`rotear`: estado inteiro, nao delta, no molde do
+  `filtrar`), e o de escrita e decisao a tomar aqui -- comando de escrita
+  amplia o que o painel pode causar.
+- **Nome de interface e gateway NUNCA vem do painel.** O painel mandara nome de
+  placa, peso e lista; o mapa nome -> interface, gateway vive em
+  `/etc/ghop/balanceador/placas`, que e fato da maquina. Interface entra em regra de
+  nft e em linha de comando do `ip`: aceita-la do painel seria aceitar shell
+  por outro caminho. E a mesma razao de o `firewall` receber campos e nunca
+  texto de regra.
+- **Placa sem carrier sai da rotacao, E PERDE A LISTA DELA.** O que estava
+  preso a uma placa caida cai no balanceamento, em vez de ir para uma tabela de
+  rota sem default -- que seria buraco negro silencioso. Degradar e obrigatorio;
+  o painel ve a placa fora e o operador decide se era essa placa ou nada.
+  Quando nenhuma esta no ar, o fragmento sai VAZIO e a maquina volta a sair
+  pelo caminho normal.
+- **A SONDA existe, e ela revoga em parte "o agente nunca faz pedido para
+  fora".** Decisao do dono em 12/10/2026, depois de a casa ficar sem internet:
+  link e gateway NAO provam que a placa passa trafego, e sem conferir isso o
+  balanceador manda a fatia dela para um buraco negro -- o sintoma e "a
+  internet funciona pela metade", que e das coisas mais caras de diagnosticar.
+  O padrao e `sonda=nexthop`: pinga o gateway da PROPRIA placa, um salto, na
+  rede local dela -- isso nao e pedido para fora, e pega o caso comum (roteador
+  do provedor morto). Um IPv4 explicito prova a internet de verdade e e
+  **opt-in**, justamente porque ai a maquina passa a falar com terceiro por
+  conta propria. `sonda=nao` volta ao comportamento anterior.
+- **Failover e imediato; a QUARENTENA atrasa so a volta.** Caiu uma, a que
+  sobrou leva tudo na mesma aplicacao -- sem sorteio, porque nao se sorteia
+  entre uma. O que espera X minutos (`quarentena=`, padrao 5) e o RETORNO da
+  que caiu. Sem isso, placa instavel entra e sai a cada ciclo da sonda: a USB
+  desta casa caiu sozinha (`r8152 ... status -71`) depois de tres minutos de
+  uso, e cada entrada e saida remexe firewall e conntrack. Estabilidade vale
+  mais que aproveitar a placa trinta segundos antes. Recaida REINICIA o
+  relogio, e nao continua de onde parou.
+- **Reavaliar e de minuto em minuto, e so reaplica quando MUDA.** O
+  temporizador tem unidade propria, porque mandar `start` numa oneshot com
+  `RemainAfterExit=yes` e no-op silencioso -- a sonda nunca rodaria. E a
+  aplicacao compara uma assinatura do que esta no kernel: sem isso seriam 1440
+  reescritas de ruleset por dia a troco de nada, e cada reescrita e uma janela.
+- **Regra de ORIGEM (`ip saddr`) prende uma maquina a uma placa**, e e o unico
+  tipo que olha para dentro da LAN. Serve para o que o dono pediu: a estacao
+  dele sempre pela saida estavel, para o trabalho nao depender de qual placa o
+  rodizio sorteou.
+- **A ordem das REGRAS decide, nao a ordem das placas.** Isto foi um defeito:
+  juntando todos os destinos de uma placa num `set` so, quem decidia era a
+  ordem das placas, enquanto a tela e o `--testar` respondiam pela ordem das
+  regras. Painel e kernel discordando em silencio e o pior defeito possivel
+  aqui. Agora cada GRUPO de regras consecutivas da mesma placa e do mesmo
+  campo vira um set, emitido na ordem -- e ha teste que falha se a ordem se
+  perder.
+- **Tirar placa caida nao e decidir politica**, e e por isso que o agente pode
+  fazer sozinho: nao se manda trafego para cabo desligado. Qualquer coisa alem
+  disso -- preferir a placa mais rapida, fugir de perda, medir latencia -- e
+  decisao, e decisao mora no painel. Em particular, **nao ha verificacao
+  ATIVA** de link (ping no proximo salto): ela faria o agente mandar pacote
+  para fora por conta propria, contra "o agente nunca faz pedido para fora" e
+  contra "o agente e burro". Se um dia valer a pena, e decisao a tomar aqui, e
+  nao detalhe de implementacao.
+- **Reaplicar e evento, nao laco.** O servico e `oneshot`: aplica e sai. Quem
+  manda reaplicar quando placa cai ou volta e uma regra de udev -- nada fica
+  vigiando em laco, o que tambem quer dizer que este papel nao fica no caminho
+  do dado. Se ele morrer, nada para: as regras ja estao no kernel.
+- **`rp_filter` frouxo (2) e condicao de funcionar, nao arrumacao.** Com rota
+  por politica a resposta volta pela placa por onde a conexao saiu, que nao e a
+  da rota default; com `rp_filter` estrito o kernel a descarta, e o sintoma e
+  "a segunda placa nao funciona". Fica em `/etc/sysctl.d/`, com o porque
+  escrito la.
+- **Placa USB tem o nome preso ao MAC.** Nome por caminho de barramento
+  (`enp0s20f0u2`) muda quando se troca a porta, e toda regra deste papel
+  aponta por NOME: trocar de porta mandaria parte do trafego para uma interface
+  que nao existe, sem erro na tela. O `.link` em `/etc/systemd/network/` resolve
+  isso, e ate a placa ser replugada ela aparece fora da rotacao -- nao se manda
+  trafego para placa que nao se sabe nomear. O arquivo **nao** e apagado no
+  desinstalar: apagar faria a placa voltar a trocar de nome.
+- **O fragmento e conferido depois de aplicado, e desfeito se o nft recusar.**
+  Kernel sem `numgen`, versao de nft antiga: o `ligar` confere se a cadeia
+  existe e, se nao, remove rotas e fragmento. Deixar regra de politica em pe
+  com marca que ninguem poe seria o pior dos mundos -- trafego marcado para uma
+  tabela vazia. Aqui degradar quer dizer voltar ao que a maquina fazia antes.
+- **A marca e deste papel.** Nada mais no GHop usa `meta mark`/`ct mark` hoje;
+  quem for usar tem de combinar a divisao aqui, porque a marca e um numero so
+  por pacote. Tabela de rota e prioridade de regra sao DERIVADAS da ordem das
+  placas, nao configuraveis: numero de tabela e detalhe de implementacao, e
+  deixar o operador escolher so cria colisao com o que ja existe na maquina.
+
 ### Wi-Fi (`ghop-wifi`)
 
 - **O radio entra em bridge com o cabo; nao e uma rede nova.** Uma sub-rede
@@ -547,6 +680,13 @@ Um elemento pode acumular papeis: este lojmIt e `lojmIt` + `agente`.
 - **A LAN e uma interface so**, a do cabo ou a bridge quando ha Wi-Fi. E o
   que `LAN_IF` significa em todos os instaladores, e o `install.sh` a troca
   pela bridge assim que o papel `wifi` a cria.
+- **A WAN, essa, pode ser mais de uma** (papel `balanceador`). A assimetria e
+  deliberada: juntar duas placas na LAN e uma bridge, que o Wi-Fi ja faz e que
+  nao muda quem decide nada; ter duas saidas e escolher, conexao por conexao,
+  por onde sair -- e escolha precisa de dono, de ordem e de registro. `WAN_IF`
+  continua sendo a saida PRINCIPAL, a da rota default e a que o nftables
+  mascara na regra base; as demais vivem em `/etc/ghop/balanceador/placas` e ganham
+  masquerade pelo fragmento.
 - SSH so pela interface da LAN.
 - Firewall **e** mTLS, nunca um ou outro: sao camadas distintas. O nftables
   reduz quem pode tentar; o mTLS responde quem esta falando.
